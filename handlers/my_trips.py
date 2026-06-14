@@ -91,8 +91,10 @@ async def my_active_trips(callback: CallbackQuery, session: AsyncSession) -> Non
         if WEBAPP_URL:
             from keyboards.keyboards import map_view_kb
             import urllib.parse
+            base = WEBAPP_URL.rstrip("/")
             url = (
-                f"{WEBAPP_URL}?from_lat={trip.from_lat}&from_lon={trip.from_lon}"
+                f"{base}/?mode=single"
+                f"&from_lat={trip.from_lat}&from_lon={trip.from_lon}"
                 f"&to_lat={trip.to_lat}&to_lon={trip.to_lon}"
                 f"&from_addr={urllib.parse.quote(trip.from_address)}"
                 f"&to_addr={urllib.parse.quote(trip.to_address)}"
