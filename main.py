@@ -37,7 +37,7 @@ class DbSessionMiddleware(BaseMiddleware):
                         username=tg_user.username,
                         first_name=tg_user.first_name or "",
                     ))
-                    await session.flush()
+                    await session.commit()
             return await handler(event, data)
 
 
