@@ -270,9 +270,5 @@ async def driver_seats(message: Message, state: FSMContext, session: AsyncSessio
     for matched_trip in matches:
         match = await create_match(trip, matched_trip, session)
         if match:
-            await session.refresh(matched_trip)
-            await session.refresh(matched_trip.user if hasattr(matched_trip, 'user') else matched_trip)
-            # Notify driver about found passenger
             await notify_new_match(bot, trip, matched_trip, match)
-            # Notify passenger about found driver
             await notify_new_match(bot, matched_trip, trip, match)

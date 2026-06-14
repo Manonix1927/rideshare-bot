@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy import select
@@ -7,6 +8,8 @@ from sqlalchemy.orm import selectinload
 from database.models import Trip, Match, User
 from services.geo import haversine_km
 from config import MATCH_RADIUS_KM, MATCH_TIME_DELTA_HOURS
+
+logger = logging.getLogger(__name__)
 
 
 async def find_matches_for_trip(
@@ -28,6 +31,11 @@ async def find_matches_for_trip(
     matches: list[Trip] = []
     delta = timedelta(hours=MATCH_TIME_DELTA_HOURS)
 
+    logger.info(
+        "Matching trip #%d (%s) against %d candidates (radius=%.1f km, delta=%.1f h)",
+        trip.id, trip.role, len(candidates), MATCH_RADIUS_KM, MATCH_TIME_DELTA_HOURS,
+    )
+
     for candidate in candidates:
         if candidate.user_id == trip.user_id:
             continue
@@ -35,6 +43,7 @@ async def find_matches_for_trip(
         # Time check
         time_diff = abs((candidate.departure_time - trip.departure_time).total_seconds())
         if time_diff > delta.total_seconds():
+            logger.info("  Skip #%d: time diff %.0f s > %.0f s", candidate.id, time_diff, delta.total_seconds())
             continue
 
         # Origin distance check
@@ -43,6 +52,7 @@ async def find_matches_for_trip(
             candidate.from_lat, candidate.from_lon,
         )
         if dist_from > MATCH_RADIUS_KM:
+            logger.info("  Skip #%d: origin dist %.2f km > %.1f km", candidate.id, dist_from, MATCH_RADIUS_KM)
             continue
 
         # Destination distance check
@@ -51,8 +61,10 @@ async def find_matches_for_trip(
             candidate.to_lat, candidate.to_lon,
         )
         if dist_to > MATCH_RADIUS_KM:
+            logger.info("  Skip #%d: dest dist %.2f km > %.1f km", candidate.id, dist_to, MATCH_RADIUS_KM)
             continue
 
+        logger.info("  MATCH found: trip #%d ↔ candidate #%d", trip.id, candidate.id)
         matches.append(candidate)
 
     return matches

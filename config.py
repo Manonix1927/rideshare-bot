@@ -16,7 +16,7 @@ NOMINATIM_UA: str = os.getenv("NOMINATIM_UA", "rideshare_bot_v1")
 _domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
 API_URL: str = f"https://{_domain}" if _domain else os.getenv("API_URL", "")
 
-MATCH_RADIUS_KM: float = 3.0
-MATCH_TIME_DELTA_HOURS: float = 1.0
+MATCH_RADIUS_KM: float = 10.0
+MATCH_TIME_DELTA_HOURS: float = 2.0
 MAX_ACTIVE_TRIPS: int = 2
 RATING_DELAY_MINUTES: int = 5
