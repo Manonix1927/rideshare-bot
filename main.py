@@ -27,7 +27,13 @@ class DbSessionMiddleware(BaseMiddleware):
         async with AsyncSessionLocal() as session:
             data["session"] = session
             # Auto-create user on first interaction
-            tg_user = getattr(event, "from_user", None)
+            # event is Update — from_user lives inside message/callback_query/etc.
+            tg_user = None
+            for attr in ("message", "callback_query", "edited_message", "channel_post"):
+                sub = getattr(event, attr, None)
+                if sub and getattr(sub, "from_user", None):
+                    tg_user = sub.from_user
+                    break
             if tg_user and tg_user.id:
                 from database.models import User
                 user = await session.get(User, tg_user.id)
