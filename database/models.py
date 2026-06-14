@@ -105,3 +105,12 @@ class FAQ(Base):
     question = Column(String, nullable=False)
     answer = Column(Text, nullable=False)
     order_idx = Column(Integer, default=0)
+
+
+class DriverLocation(Base):
+    __tablename__ = "driver_locations"
+
+    match_id = Column(Integer, ForeignKey("matches.id"), primary_key=True)
+    lat = Column(Float, nullable=False)
+    lon = Column(Float, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow)

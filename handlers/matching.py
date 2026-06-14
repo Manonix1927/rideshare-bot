@@ -1,13 +1,14 @@
 """
 Handles match confirmation/rejection flow and post-trip rating.
 """
+from datetime import datetime
 from aiogram import Router, F, Bot
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message, KeyboardButton, ReplyKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 
-from database.models import Match, Trip, User, Rating
+from database.models import Match, Trip, User, Rating, DriverLocation
 from keyboards.keyboards import (
     rejection_reason_kb,
     meeting_happened_kb,
@@ -18,6 +19,39 @@ from keyboards.keyboards import (
 from services.matching import confirm_match_side, reject_match, get_match_for_user
 
 router = Router()
+
+_share_location_kb = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="📍 Поділитись live-геолокацією", request_location=True)]],
+    resize_keyboard=True,
+    one_time_keyboard=False,
+)
+
+
+@router.message(F.location)
+async def handle_driver_live_location(message: Message, session: AsyncSession) -> None:
+    """Store driver's live location update for active confirmed match."""
+    result = await session.execute(
+        select(Match)
+        .join(Trip, Match.driver_trip_id == Trip.id)
+        .where(Trip.user_id == message.from_user.id, Match.status == "CONFIRMED")
+    )
+    match = result.scalars().first()
+    if not match:
+        return
+
+    loc = await session.get(DriverLocation, match.id)
+    if loc:
+        loc.lat = message.location.latitude
+        loc.lon = message.location.longitude
+        loc.updated_at = datetime.utcnow()
+    else:
+        loc = DriverLocation(
+            match_id=match.id,
+            lat=message.location.latitude,
+            lon=message.location.longitude,
+        )
+        session.add(loc)
+    await session.commit()
 
 
 async def _get_match_with_trips(match_id: int, session: AsyncSession) -> Match | None:
@@ -57,7 +91,6 @@ async def match_confirm(callback: CallbackQuery, session: AsyncSession, bot: Bot
     both_confirmed = await confirm_match_side(match, user_trip, session)
 
     if both_confirmed:
-        # Refresh to get updated data
         match = await _get_match_with_trips(match_id, session)
         driver_user = match.driver_trip.user
         passenger_user = match.passenger_trip.user
@@ -75,16 +108,51 @@ async def match_confirm(callback: CallbackQuery, session: AsyncSession, bot: Bot
             + (f" (@{passenger_user.username})" if passenger_user.username else "")
         )
 
+        # Build passenger tracking map button
+        from config import WEBAPP_URL, API_URL
+        import urllib.parse
+        tracking_btn = None
+        if WEBAPP_URL and API_URL:
+            d = match.driver_trip
+            p = match.passenger_trip
+            params = {
+                "mode": "track",
+                "match_id": match.id,
+                "api_url": f"{API_URL}/location",
+                "d_from_lat": d.from_lat, "d_from_lon": d.from_lon,
+                "d_to_lat": d.to_lat,   "d_to_lon": d.to_lon,
+                "p_from_lat": p.from_lat, "p_from_lon": p.from_lon,
+                "p_to_lat": p.to_lat,   "p_to_lon": p.to_lon,
+                "d_from_addr": d.from_address, "d_to_addr": d.to_address,
+            }
+            track_url = WEBAPP_URL.rstrip("/") + "/?" + urllib.parse.urlencode(params)
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+            from aiogram.utils.keyboard import InlineKeyboardBuilder
+            builder = InlineKeyboardBuilder()
+            builder.row(InlineKeyboardButton(
+                text="🗺 Відстежити водія на карті",
+                web_app=WebAppInfo(url=track_url),
+            ))
+            tracking_btn = builder.as_markup()
+
         try:
+            # Driver gets contact + live location request
             await bot.send_message(
                 driver_user.id,
                 contact_text + passenger_contact,
                 parse_mode="HTML",
             )
             await bot.send_message(
+                driver_user.id,
+                "📍 Поділіться live-геолокацією — пасажир бачитиме вас на карті в реальному часі:",
+                reply_markup=_share_location_kb,
+            )
+            # Passenger gets contact + tracking button
+            await bot.send_message(
                 passenger_user.id,
                 contact_text + driver_contact,
                 parse_mode="HTML",
+                reply_markup=tracking_btn,
             )
         except Exception:
             pass
