@@ -40,6 +40,15 @@ def cancel_kb() -> ReplyKeyboardMarkup:
     return builder.as_markup(resize_keyboard=True)
 
 
+def confirm_address_kb(role: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✅ Вірно", callback_data=f"addr_ok:{role}"),
+        InlineKeyboardButton(text="🔄 Ввести інший", callback_data=f"addr_retry:{role}"),
+    )
+    return builder.as_markup()
+
+
 def confirm_send_offer_kb(trip_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(

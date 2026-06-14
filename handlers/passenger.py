@@ -1,13 +1,13 @@
 from datetime import datetime
 from aiogram import Router, F, Bot
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from database.models import Trip, User
-from keyboards.keyboards import geo_or_text_kb, cancel_kb, main_menu_kb
-from services.geo import geocode_address, reverse_geocode
+from keyboards.keyboards import geo_or_text_kb, cancel_kb, main_menu_kb, confirm_address_kb
+from services.geo import geocode_address, reverse_geocode, get_city_from_coords
 from services.matching import find_matches_for_trip, create_match
 from services.notifications import notify_new_match
 from states.states import PassengerStates
@@ -63,7 +63,8 @@ async def passenger_start(message: Message, state: FSMContext, session: AsyncSes
 async def passenger_from_location(message: Message, state: FSMContext) -> None:
     lat, lon = message.location.latitude, message.location.longitude
     address = await reverse_geocode(lat, lon)
-    await state.update_data(from_lat=lat, from_lon=lon, from_address=address)
+    city = await get_city_from_coords(lat, lon)
+    await state.update_data(from_lat=lat, from_lon=lon, from_address=address, from_city=city)
     await state.set_state(PassengerStates.to_address)
     await message.answer(
         f"✅ Відправлення: {address}\n\n🙋 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
@@ -85,7 +86,8 @@ async def passenger_from_text(message: Message, state: FSMContext) -> None:
         return
 
     lat, lon, address = result
-    await state.update_data(from_lat=lat, from_lon=lon, from_address=address)
+    city = await get_city_from_coords(lat, lon)
+    await state.update_data(from_lat=lat, from_lon=lon, from_address=address, from_city=city)
     await state.set_state(PassengerStates.to_address)
     await message.answer(
         f"✅ Відправлення: {address}\n\n🙋 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
@@ -118,23 +120,52 @@ async def passenger_to_text(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     near_lat = data.get("from_lat")
     near_lon = data.get("from_lon")
+    from_city = data.get("from_city", "")
 
-    result = await geocode_address(message.text, near_lat=near_lat, near_lon=near_lon)
+    query = message.text
+    if from_city and from_city.lower() not in query.lower():
+        query = f"{query}, {from_city}"
+
+    result = await geocode_address(query, near_lat=near_lat, near_lon=near_lon)
     if not result:
         await message.answer("❌ Не вдалося знайти адресу. Спробуйте ще раз або надішліть геолокацію.")
         return
 
     lat, lon, address = result
-    await state.update_data(to_lat=lat, to_lon=lon, to_address=address)
-    await state.set_state(PassengerStates.departure_time)
+    await state.update_data(pending_to_lat=lat, pending_to_lon=lon, pending_to_address=address)
     await message.answer(
-        f"✅ Призначення: <b>{address}</b>\n"
-        f"<i>Якщо це не той населений пункт — поверніться і введіть адресу з назвою міста.</i>\n\n"
+        f"📍 Знайдено: <b>{address}</b>\n\nЦе правильна адреса?",
+        parse_mode="HTML",
+        reply_markup=confirm_address_kb("passenger"),
+    )
+
+
+@router.callback_query(F.data == "addr_ok:passenger", PassengerStates.to_address)
+async def passenger_addr_ok(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    await state.update_data(
+        to_lat=data["pending_to_lat"],
+        to_lon=data["pending_to_lon"],
+        to_address=data["pending_to_address"],
+    )
+    await state.set_state(PassengerStates.departure_time)
+    await callback.message.edit_text(
+        f"✅ Призначення: {data['pending_to_address']}\n\n"
         "🙋 <b>Крок 3/5</b>\n\n"
         "Вкажіть бажаний час поїздки:\n<i>(Формат: ДД.ММ.РРРР ГГ:ХХ або ГГ:ХХ для сьогодні)</i>",
         parse_mode="HTML",
-        reply_markup=cancel_kb(),
     )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "addr_retry:passenger", PassengerStates.to_address)
+async def passenger_addr_retry(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "🙋 Введіть адресу пункту призначення:\n"
+        "<i>Для точного результату вказуйте місто, наприклад: Телиги 50, Київ</i>",
+        parse_mode="HTML",
+    )
+    await callback.answer()
 
 
 @router.message(PassengerStates.departure_time, F.text)

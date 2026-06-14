@@ -26,12 +26,12 @@ async def geocode_address(
     """
     loop = asyncio.get_event_loop()
 
-    # Build viewbox from context point: (west, north, east, south)
+    # Build viewbox from context point — geopy expects (lat, lon) pairs
     viewbox = None
     if near_lat is not None and near_lon is not None:
         viewbox = [
-            (near_lon - _VIEWBOX_DEG, near_lat + _VIEWBOX_DEG),
-            (near_lon + _VIEWBOX_DEG, near_lat - _VIEWBOX_DEG),
+            (near_lat + _VIEWBOX_DEG, near_lon - _VIEWBOX_DEG),  # NW
+            (near_lat - _VIEWBOX_DEG, near_lon + _VIEWBOX_DEG),  # SE
         ]
 
     async def _geocode(vb, bounded):
@@ -64,6 +64,21 @@ async def geocode_address(
         return loc.latitude, loc.longitude, loc.address
 
     return None
+
+
+async def get_city_from_coords(lat: float, lon: float) -> str:
+    """Return city/town name for coordinates (used to bias destination geocoding)."""
+    loop = asyncio.get_event_loop()
+    try:
+        loc = await loop.run_in_executor(
+            None, lambda: _geocoder.reverse((lat, lon), language="uk")
+        )
+        if loc and loc.raw.get("address"):
+            a = loc.raw["address"]
+            return a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or ""
+    except (GeocoderTimedOut, GeocoderServiceError):
+        pass
+    return ""
 
 
 async def reverse_geocode(lat: float, lon: float) -> str:
