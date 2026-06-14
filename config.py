@@ -9,6 +9,7 @@ ADMIN_IDS: list[int] = [
 ]
 WEBAPP_URL: str = os.getenv("WEBAPP_URL", "")
 DB_PATH: str = os.getenv("DB_PATH", "rideshare.db")
+DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 NOMINATIM_UA: str = os.getenv("NOMINATIM_UA", "rideshare_bot_v1")
 
 MATCH_RADIUS_KM: float = 3.0
