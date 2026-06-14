@@ -26,6 +26,18 @@ class DbSessionMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         async with AsyncSessionLocal() as session:
             data["session"] = session
+            # Auto-create user on first interaction
+            tg_user = getattr(event, "from_user", None)
+            if tg_user and tg_user.id:
+                from database.models import User
+                user = await session.get(User, tg_user.id)
+                if not user:
+                    session.add(User(
+                        id=tg_user.id,
+                        username=tg_user.username,
+                        first_name=tg_user.first_name or "",
+                    ))
+                    await session.flush()
             return await handler(event, data)
 
 
