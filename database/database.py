@@ -5,8 +5,10 @@ from config import DB_PATH, DATABASE_URL
 from database.models import Base, FAQ
 
 if DATABASE_URL:
-    # PostgreSQL on Railway — replace postgres:// with postgresql+asyncpg://
-    _url = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+    # Normalize to postgresql+asyncpg:// regardless of what Railway provides
+    _url = DATABASE_URL
+    _url = _url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    _url = _url.replace("postgres://", "postgresql+asyncpg://", 1)
     engine = create_async_engine(_url, echo=False)
 else:
     engine = create_async_engine(f"sqlite+aiosqlite:///{DB_PATH}", echo=False)
