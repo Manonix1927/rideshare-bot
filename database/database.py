@@ -1,0 +1,74 @@
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.orm import DeclarativeBase
+
+from config import DB_PATH
+from database.models import Base, FAQ
+
+engine = create_async_engine(f"sqlite+aiosqlite:///{DB_PATH}", echo=False)
+AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+
+
+async def init_db() -> None:
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    await _seed_faq()
+
+
+async def _seed_faq() -> None:
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select
+        result = await session.execute(select(FAQ))
+        if result.scalars().first():
+            return
+        defaults = [
+            FAQ(
+                question="Як це працює?",
+                answer=(
+                    "1️⃣ Створіть поїздку або заявку.\n"
+                    "2️⃣ Ми підберемо підходящі варіанти.\n"
+                    "3️⃣ Підтвердіть поїздку.\n"
+                    "4️⃣ Отримайте контакти попутника.\n"
+                    "5️⃣ Після поїздки залиште оцінку."
+                ),
+                order_idx=1,
+            ),
+            FAQ(
+                question="Як публікується моя заявка?",
+                answer=(
+                    "Після створення заявка з'являється у розділі «📢 Всі оголошення» "
+                    "та стає доступною для гео-пошуку. Контакти відкриваються лише "
+                    "після взаємного підтвердження поїздки."
+                ),
+                order_idx=2,
+            ),
+            FAQ(
+                question="Скільки активних заявок я можу мати?",
+                answer="Не більше 2 активних заявок одночасно.",
+                order_idx=3,
+            ),
+            FAQ(
+                question="Як відбувається оцінювання?",
+                answer=(
+                    "Через 5 хвилин після запланованого часу зустрічі бот надішле "
+                    "питання «Чи відбулась поїздка?». Після завершення ви зможете "
+                    "оцінити попутника від 1 до 5 зірок."
+                ),
+                order_idx=4,
+            ),
+            FAQ(
+                question="Що таке рейтинг?",
+                answer=(
+                    "Рейтинг — середній бал на основі оцінок від інших користувачів. "
+                    "Часті скасування знижують рейтинг. Перед підтвердженням поїздки "
+                    "ви завжди бачите рейтинг потенційного попутника."
+                ),
+                order_idx=5,
+            ),
+        ]
+        session.add_all(defaults)
+        await session.commit()
+
+
+async def get_session() -> AsyncSession:
+    async with AsyncSessionLocal() as session:
+        yield session
