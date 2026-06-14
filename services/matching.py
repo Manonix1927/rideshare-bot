@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database.models import Trip, Match, User
-from services.geo import haversine_km
+from services.geo import haversine_km, routes_compatible
 from config import MATCH_RADIUS_KM, MATCH_TIME_DELTA_HOURS
 
 logger = logging.getLogger(__name__)
@@ -46,22 +46,13 @@ async def find_matches_for_trip(
             logger.info("  Skip #%d: time diff %.0f s > %.0f s", candidate.id, time_diff, delta.total_seconds())
             continue
 
-        # Origin distance check
-        dist_from = haversine_km(
-            trip.from_lat, trip.from_lon,
-            candidate.from_lat, candidate.from_lon,
-        )
-        if dist_from > MATCH_RADIUS_KM:
-            logger.info("  Skip #%d: origin dist %.2f km > %.1f km", candidate.id, dist_from, MATCH_RADIUS_KM)
-            continue
-
-        # Destination distance check
-        dist_to = haversine_km(
-            trip.to_lat, trip.to_lon,
-            candidate.to_lat, candidate.to_lon,
-        )
-        if dist_to > MATCH_RADIUS_KM:
-            logger.info("  Skip #%d: dest dist %.2f km > %.1f km", candidate.id, dist_to, MATCH_RADIUS_KM)
+        # Route compatibility: same endpoints OR one route is a sub-segment of the other
+        if not routes_compatible(
+            trip.from_lat, trip.from_lon, trip.to_lat, trip.to_lon,
+            candidate.from_lat, candidate.from_lon, candidate.to_lat, candidate.to_lon,
+            MATCH_RADIUS_KM,
+        ):
+            logger.info("  Skip #%d: routes not compatible", candidate.id)
             continue
 
         logger.info("  MATCH found: trip #%d ↔ candidate #%d", trip.id, candidate.id)

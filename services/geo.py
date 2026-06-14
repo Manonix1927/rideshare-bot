@@ -103,3 +103,70 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlam = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _point_to_segment(
+    p_lat: float, p_lon: float,
+    a_lat: float, a_lon: float,
+    b_lat: float, b_lon: float,
+) -> tuple[float, float]:
+    """
+    Return (distance_km, t) where:
+      - distance_km = shortest distance from P to segment AB
+      - t = projection parameter: 0.0 = at A, 1.0 = at B (can be <0 or >1 if outside segment)
+    Uses flat-earth approximation (accurate enough within ~500 km).
+    """
+    cos_lat = math.cos(math.radians((a_lat + b_lat + p_lat) / 3))
+    km_per_deg_lon = 111.0 * cos_lat
+    km_per_deg_lat = 111.0
+
+    # Translate to km offsets relative to A
+    bx = (b_lon - a_lon) * km_per_deg_lon
+    by = (b_lat - a_lat) * km_per_deg_lat
+    px = (p_lon - a_lon) * km_per_deg_lon
+    py = (p_lat - a_lat) * km_per_deg_lat
+
+    ab_sq = bx * bx + by * by
+    if ab_sq < 1e-10:  # A == B (degenerate segment)
+        return math.sqrt(px * px + py * py), 0.0
+
+    t = (px * bx + py * by) / ab_sq
+
+    # Nearest point on segment (clamped to [0, 1] for distance calc)
+    t_c = max(0.0, min(1.0, t))
+    dx = px - t_c * bx
+    dy = py - t_c * by
+    return math.sqrt(dx * dx + dy * dy), t
+
+
+def routes_compatible(
+    a_from_lat: float, a_from_lon: float, a_to_lat: float, a_to_lon: float,
+    b_from_lat: float, b_from_lon: float, b_to_lat: float, b_to_lon: float,
+    radius_km: float,
+) -> bool:
+    """
+    Return True if routes A and B are compatible for ridesharing.
+
+    Compatible means one of:
+    1. Both endpoints are close (same-length routes in similar area)
+    2. Route B is a sub-segment of route A (B's from/to both project onto A within radius)
+    3. Route A is a sub-segment of route B
+    """
+    # Case 1: both endpoints close — standard same-route match
+    if (haversine_km(a_from_lat, a_from_lon, b_from_lat, b_from_lon) <= radius_km and
+            haversine_km(a_to_lat, a_to_lon, b_to_lat, b_to_lon) <= radius_km):
+        return True
+
+    # Case 2: B's route lies within A's route (short passenger, long driver)
+    d_bf, t_bf = _point_to_segment(b_from_lat, b_from_lon, a_from_lat, a_from_lon, a_to_lat, a_to_lon)
+    d_bt, t_bt = _point_to_segment(b_to_lat, b_to_lon, a_from_lat, a_from_lon, a_to_lat, a_to_lon)
+    if d_bf <= radius_km and d_bt <= radius_km and 0.0 <= t_bf <= t_bt <= 1.0:
+        return True
+
+    # Case 3: A's route lies within B's route (short driver, long passenger — less common)
+    d_af, t_af = _point_to_segment(a_from_lat, a_from_lon, b_from_lat, b_from_lon, b_to_lat, b_to_lon)
+    d_at, t_at = _point_to_segment(a_to_lat, a_to_lon, b_from_lat, b_from_lon, b_to_lat, b_to_lon)
+    if d_af <= radius_km and d_at <= radius_km and 0.0 <= t_af <= t_at <= 1.0:
+        return True
+
+    return False
