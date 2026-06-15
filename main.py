@@ -79,10 +79,25 @@ async def handle_preflight(request: web.Request) -> web.Response:
     )
 
 
+async def handle_debug(request: web.Request) -> web.Response:
+    from config import WEBAPP_URL, API_URL
+    import urllib.parse
+    test_url = WEBAPP_URL.rstrip("/") + "/?" + urllib.parse.urlencode({
+        "mode": "single", "from_lat": 50.45, "from_lon": 30.52,
+        "to_lat": 50.40, "to_lon": 30.55, "role": "driver",
+    }) if WEBAPP_URL else "(not set)"
+    return web.Response(text=(
+        f"WEBAPP_URL={repr(WEBAPP_URL)}\n"
+        f"API_URL={repr(API_URL)}\n\n"
+        f"Generated URL:\n{test_url}"
+    ), content_type="text/plain")
+
+
 def build_web_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/location/{match_id}", handle_location)
     app.router.add_options("/location/{match_id}", handle_preflight)
+    app.router.add_get("/debug", handle_debug)
     return app
 
 
