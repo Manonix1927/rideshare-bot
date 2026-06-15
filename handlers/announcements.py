@@ -8,6 +8,7 @@ from database.models import Trip, User, Match
 from keyboards.keyboards import offer_trip_kb, confirm_send_offer_kb, main_menu_kb
 from services.matching import create_match
 from services.notifications import notify_new_match
+from services.rich_cards import send_trip_card
 
 router = Router()
 
@@ -95,13 +96,21 @@ async def list_trips(callback: CallbackQuery, session: AsyncSession) -> None:
     header = f"{'🚗' if role == 'driver' else '🙋'} <b>{role_label}</b> — сторінка {page + 1}\n\n"
 
     for trip in trips:
-        card = _format_trip_card(trip, trip.user)
-        # Don't show offer button for own trips
         if trip.user_id == callback.from_user.id:
-            await callback.message.answer(card + "\n<i>(Ваше оголошення)</i>", parse_mode="HTML")
+            await send_trip_card(
+                bot=callback.bot,
+                chat_id=callback.message.chat.id,
+                trip=trip,
+                user=trip.user,
+                extra_text="Ваше оголошення",
+            )
         else:
-            await callback.message.answer(
-                card, parse_mode="HTML", reply_markup=offer_trip_kb(trip.id)
+            await send_trip_card(
+                bot=callback.bot,
+                chat_id=callback.message.chat.id,
+                trip=trip,
+                user=trip.user,
+                reply_markup=offer_trip_kb(trip.id),
             )
 
     # Pagination
@@ -143,10 +152,12 @@ async def offer_trip_start(callback: CallbackQuery, session: AsyncSession) -> No
         await callback.answer("Це ваше власне оголошення.", show_alert=True)
         return
 
-    card = _format_trip_card(trip, trip.user)
-    await callback.message.answer(
-        f"{card}\n\nНадіслати пропозицію користувачу?",
-        parse_mode="HTML",
+    await send_trip_card(
+        bot=callback.bot,
+        chat_id=callback.message.chat.id,
+        trip=trip,
+        user=trip.user,
+        extra_text="Надіслати пропозицію користувачу?",
         reply_markup=confirm_send_offer_kb(trip_id),
     )
     await callback.answer()

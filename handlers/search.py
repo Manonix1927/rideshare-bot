@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from database.models import Trip
 from keyboards.keyboards import geo_or_text_kb, main_menu_kb
 from services.geo import geocode_address, reverse_geocode, haversine_km
+from services.rich_cards import send_trip_card
 from states.states import SearchStates
 from config import WEBAPP_URL
 
@@ -209,9 +210,12 @@ async def search_results_page(callback: CallbackQuery, session: AsyncSession) ->
     )
 
     for trip, dist in page_items:
-        await callback.message.answer(
-            _trip_card(trip, dist),
-            parse_mode="HTML",
+        await send_trip_card(
+            bot=callback.bot,
+            chat_id=callback.message.chat.id,
+            trip=trip,
+            user=trip.user,
+            dist_km=dist,
             reply_markup=_map_kb(trip),
         )
 
