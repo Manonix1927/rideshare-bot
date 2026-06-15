@@ -22,7 +22,7 @@ def _format_trip_card(trip: Trip, user: User) -> str:
 
     return (
         f"{role_emoji} <b>{role_label}</b> | "
-        f"{trip.from_address.split(',')[0]} → {trip.to_address.split(',')[0]}\n"
+        f"{', '.join(trip.from_address.split(',')[:2]).strip()} → {', '.join(trip.to_address.split(',')[:2]).strip()}\n"
         f"🕒 {trip.departure_time.strftime('%d.%m.%Y %H:%M')} | "
         f"💰 {price_label} | {seats_label}\n"
         f"⭐ Рейтинг: {user.rating:.1f} | 🔄 У пошуку"

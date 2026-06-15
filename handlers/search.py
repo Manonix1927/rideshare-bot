@@ -70,7 +70,7 @@ def _trip_card(trip: Trip, dist_km: float) -> str:
     )
     rating = trip.user.rating if trip.user else 5.0
     return (
-        f"{role_emoji} {trip.from_address.split(',')[0]} → {trip.to_address.split(',')[0]}\n"
+        f"{role_emoji} {', '.join(trip.from_address.split(',')[:2]).strip()} → {', '.join(trip.to_address.split(',')[:2]).strip()}\n"
         f"🕒 {trip.departure_time.strftime('%d.%m %H:%M')}  💰 {price_str}  {seats_str}\n"
         f"⭐ {rating:.1f}  📍 {dist_km:.1f} км від вас"
     )

@@ -104,8 +104,8 @@ async def admin_trips(callback: CallbackQuery, session: AsyncSession) -> None:
     for trip in trips:
         role_emoji = "🚗" if trip.role == "driver" else "🙋"
         text = (
-            f"{role_emoji} #{trip.id} | {trip.from_address.split(',')[0]} → "
-            f"{trip.to_address.split(',')[0]}\n"
+            f"{role_emoji} #{trip.id} | {', '.join(trip.from_address.split(',')[:2]).strip()} → "
+            f"{', '.join(trip.to_address.split(',')[:2]).strip()}\n"
             f"🕒 {trip.departure_time.strftime('%d.%m %H:%M')} | "
             f"💰 {trip.price:.0f} грн | 📊 {trip.status}\n"
             f"👤 User ID: {trip.user_id}"
