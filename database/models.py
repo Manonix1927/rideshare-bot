@@ -63,9 +63,15 @@ class Match(Base):
     passenger_trip_id = Column(Integer, ForeignKey("trips.id"), nullable=False)
     driver_confirmed = Column(Boolean, default=False)
     passenger_confirmed = Column(Boolean, default=False)
-    status = Column(String, default="PENDING")  # PENDING | CONFIRMED | REJECTED
+    status = Column(String, default="PENDING")  # PENDING | CONFIRMED | REJECTED | CANCELLED | CLOSED
     rejection_reason = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Pre-departure flow
+    reminder_sent = Column(Boolean, default=False)
+    driver_departed = Column(Boolean, default=False)
+    passenger_ready = Column(Boolean, default=False)
+    cancelled_by = Column(String, nullable=True)   # "driver" | "passenger"
+    cancel_reason = Column(String, nullable=True)
 
     driver_trip = relationship("Trip", foreign_keys=[driver_trip_id], back_populates="driver_matches")
     passenger_trip = relationship("Trip", foreign_keys=[passenger_trip_id], back_populates="passenger_matches")

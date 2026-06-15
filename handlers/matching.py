@@ -17,6 +17,8 @@ from keyboards.keyboards import (
     main_menu_kb,
 )
 from services.matching import confirm_match_side, reject_match, get_match_for_user
+from services.tracking import build_track_url
+from keyboards.keyboards import confirmed_trip_driver_kb, confirmed_trip_passenger_kb
 
 router = Router()
 
@@ -116,59 +118,24 @@ async def match_confirm(callback: CallbackQuery, session: AsyncSession, bot: Bot
             + (f" (@{passenger_user.username})" if passenger_user.username else "")
         )
 
-        # Build tracking URL (same for both — Mini App identifies role via initData)
-        from config import WEBAPP_URL, API_URL
-        import urllib.parse
-        from aiogram.types import InlineKeyboardButton, WebAppInfo
-        from aiogram.utils.keyboard import InlineKeyboardBuilder
-
-        tracking_btn_driver = None
-        tracking_btn_passenger = None
-        if WEBAPP_URL and API_URL:
-            d = match.driver_trip
-            p = match.passenger_trip
-            params = {
-                "mode": "track",
-                "match_id": match.id,
-                "api_url": f"{API_URL}/location",
-                "driver_user_id": driver_user.id,
-                "passenger_user_id": passenger_user.id,
-                "d_from_lat": d.from_lat, "d_from_lon": d.from_lon,
-                "d_to_lat": d.to_lat,   "d_to_lon": d.to_lon,
-                "p_from_lat": p.from_lat, "p_from_lon": p.from_lon,
-                "p_to_lat": p.to_lat,   "p_to_lon": p.to_lon,
-                "d_from_addr": d.from_address, "d_to_addr": d.to_address,
-            }
-            track_url = WEBAPP_URL.rstrip("/") + "/?" + urllib.parse.urlencode(params)
-
-            b1 = InlineKeyboardBuilder()
-            b1.row(InlineKeyboardButton(
-                text="🗺 Відкрити карту поїздки",
-                web_app=WebAppInfo(url=track_url),
-            ))
-            tracking_btn_driver = b1.as_markup()
-
-            b2 = InlineKeyboardBuilder()
-            b2.row(InlineKeyboardButton(
-                text="🗺 Відстежити водія на карті",
-                web_app=WebAppInfo(url=track_url),
-            ))
-            tracking_btn_passenger = b2.as_markup()
+        track_url = build_track_url(match, driver_user.id, passenger_user.id)
 
         try:
             await bot.send_message(
                 driver_user.id,
                 contact_text + passenger_contact + "\n\n"
-                "📍 <b>Відкрийте карту</b> — пасажир бачитиме ваше місцезнаходження в реальному часі.",
+                "📍 Натисніть «Виїхав до попутника» коли вирушите. "
+                "Пасажир отримає сповіщення.",
                 parse_mode="HTML",
-                reply_markup=tracking_btn_driver,
+                reply_markup=confirmed_trip_driver_kb(match.id, track_url),
             )
             await bot.send_message(
                 passenger_user.id,
                 contact_text + driver_contact + "\n\n"
-                "📍 <b>Відкрийте карту</b> — побачите водія в реальному часі.",
+                "📍 Очікуйте — водій натисне кнопку «Виїхав», "
+                "тоді вам прийде сповіщення.",
                 parse_mode="HTML",
-                reply_markup=tracking_btn_passenger,
+                reply_markup=confirmed_trip_passenger_kb(match.id, track_url),
             )
         except Exception:
             pass

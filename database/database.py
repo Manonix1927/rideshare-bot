@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 
@@ -15,9 +16,32 @@ else:
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
+async def _run_migrations() -> None:
+    """Safely add new columns to existing tables (idempotent)."""
+    is_pg = "postgresql" in str(engine.url)
+    new_cols = [
+        ("matches", "reminder_sent",    "BOOLEAN DEFAULT FALSE"),
+        ("matches", "driver_departed",  "BOOLEAN DEFAULT FALSE"),
+        ("matches", "passenger_ready",  "BOOLEAN DEFAULT FALSE"),
+        ("matches", "cancelled_by",     "VARCHAR"),
+        ("matches", "cancel_reason",    "VARCHAR"),
+    ]
+    async with engine.begin() as conn:
+        for table, col, col_type in new_cols:
+            if is_pg:
+                sql = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"
+            else:
+                sql = f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
+            try:
+                await conn.execute(text(sql))
+            except Exception:
+                pass  # column already exists
+
+
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await _run_migrations()
     await _seed_faq()
 
 

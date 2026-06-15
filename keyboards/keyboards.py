@@ -220,6 +220,99 @@ def map_view_kb(webapp_url: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+_DRIVER_CANCEL_REASONS = [
+    ("Пасажир не викликає довіри",      "trust"),
+    ("Пасажир п'яний/неадекватний",     "drunk"),
+    ("Пасажир не відповідає",           "no_answer"),
+    ("Пасажир змінив умови",            "changed_terms"),
+    ("Технічна несправність авто",      "car_issue"),
+    ("Форс-мажор",                      "force_majeure"),
+    ("Інше",                            "other"),
+]
+
+_PASSENGER_CANCEL_REASONS = [
+    ("Водій не викликає довіри",                    "trust"),
+    ("Водій запросив оплату більше ніж домовлено",  "overprice"),
+    ("Водій не відповідає",                         "no_answer"),
+    ("Водій не приїхав",                            "no_show"),
+    ("Водій надто запізнюється",                    "late"),
+    ("Форс-мажор",                                  "force_majeure"),
+    ("Інше",                                        "other"),
+]
+
+
+def confirmed_trip_driver_kb(match_id: int, track_url: str | None) -> InlineKeyboardMarkup:
+    """Driver: map + Виїхав + Відмінити."""
+    builder = InlineKeyboardBuilder()
+    if track_url:
+        builder.row(InlineKeyboardButton(
+            text="🗺 Відкрити карту поїздки", web_app=WebAppInfo(url=track_url),
+        ))
+    builder.row(InlineKeyboardButton(
+        text="🚀 Виїхав до попутника", callback_data=f"trip_departed:{match_id}",
+    ))
+    builder.row(InlineKeyboardButton(
+        text="❌ Відмінити поїздку", callback_data=f"trip_cancel:{match_id}:driver",
+    ))
+    return builder.as_markup()
+
+
+def confirmed_trip_passenger_kb(match_id: int, track_url: str | None) -> InlineKeyboardMarkup:
+    """Passenger: map + Відмінити (Виїхав кнопку немає)."""
+    builder = InlineKeyboardBuilder()
+    if track_url:
+        builder.row(InlineKeyboardButton(
+            text="🗺 Відстежити водія на карті", web_app=WebAppInfo(url=track_url),
+        ))
+    builder.row(InlineKeyboardButton(
+        text="❌ Відмінити поїздку", callback_data=f"trip_cancel:{match_id}:passenger",
+    ))
+    return builder.as_markup()
+
+
+def passenger_alert_kb(match_id: int, track_url: str | None) -> InlineKeyboardMarkup:
+    """Passenger: Я на місці + map + Відмінити (shown when driver departed)."""
+    builder = InlineKeyboardBuilder()
+    if track_url:
+        builder.row(InlineKeyboardButton(
+            text="🗺 Відстежити водія", web_app=WebAppInfo(url=track_url),
+        ))
+    builder.row(InlineKeyboardButton(
+        text="✅ Я на місці!", callback_data=f"passenger_ready:{match_id}",
+    ))
+    builder.row(InlineKeyboardButton(
+        text="❌ Відмінити поїздку", callback_data=f"trip_cancel:{match_id}:passenger",
+    ))
+    return builder.as_markup()
+
+
+def map_only_kb(track_url: str | None, label: str = "🗺 Відкрити карту") -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if track_url:
+        builder.row(InlineKeyboardButton(text=label, web_app=WebAppInfo(url=track_url)))
+    return builder.as_markup()
+
+
+def driver_cancel_reasons_kb(match_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for label, code in _DRIVER_CANCEL_REASONS:
+        builder.row(InlineKeyboardButton(
+            text=label, callback_data=f"cancel_reason:{match_id}:driver:{code}",
+        ))
+    builder.row(InlineKeyboardButton(text="↩️ Назад", callback_data=f"trip_cancel_back:{match_id}:driver"))
+    return builder.as_markup()
+
+
+def passenger_cancel_reasons_kb(match_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for label, code in _PASSENGER_CANCEL_REASONS:
+        builder.row(InlineKeyboardButton(
+            text=label, callback_data=f"cancel_reason:{match_id}:passenger:{code}",
+        ))
+    builder.row(InlineKeyboardButton(text="↩️ Назад", callback_data=f"trip_cancel_back:{match_id}:passenger"))
+    return builder.as_markup()
+
+
 def admin_main_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats"))

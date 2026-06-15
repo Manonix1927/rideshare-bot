@@ -103,6 +103,77 @@ async def send_rating_prompts(bot) -> None:
         await session.commit()
 
 
+async def send_trip_reminders(bot) -> None:
+    """10 min before departure — remind both participants with action buttons."""
+    from keyboards.keyboards import confirmed_trip_driver_kb, confirmed_trip_passenger_kb
+    from services.tracking import build_track_url
+
+    now = datetime.utcnow()
+    window_start = now + timedelta(minutes=9)
+    window_end   = now + timedelta(minutes=11)
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Match)
+            .options(
+                selectinload(Match.driver_trip).selectinload(Trip.user),
+                selectinload(Match.passenger_trip).selectinload(Trip.user),
+            )
+            .where(
+                Match.status == "CONFIRMED",
+                Match.reminder_sent.is_(False),
+            )
+        )
+        matches = result.scalars().all()
+
+        for match in matches:
+            departure = match.driver_trip.departure_time
+            if not (window_start <= departure <= window_end):
+                continue
+
+            match.reminder_sent = True
+
+            driver_user    = match.driver_trip.user
+            passenger_user = match.passenger_trip.user
+
+            from_addr = ", ".join(match.driver_trip.from_address.split(",")[:2]).strip()
+            to_addr   = ", ".join(match.driver_trip.to_address.split(",")[:2]).strip()
+            time_str  = match.driver_trip.departure_time.strftime("%H:%M")
+
+            text = (
+                f"⏰ <b>Ваша поїздка через 10 хвилин!</b>\n\n"
+                f"🗺 {from_addr} → {to_addr}\n"
+                f"🕒 {time_str}\n\n"
+                f"Попутник: {passenger_user.first_name} ⭐{passenger_user.rating:.1f}"
+            )
+            passenger_text = (
+                f"⏰ <b>Ваша поїздка через 10 хвилин!</b>\n\n"
+                f"🗺 {from_addr} → {to_addr}\n"
+                f"🕒 {time_str}\n\n"
+                f"Водій: {driver_user.first_name} ⭐{driver_user.rating:.1f}"
+            )
+
+            track_url = build_track_url(match, driver_user.id, passenger_user.id)
+
+            try:
+                await bot.send_message(
+                    driver_user.id,
+                    text,
+                    parse_mode="HTML",
+                    reply_markup=confirmed_trip_driver_kb(match.id, track_url),
+                )
+                await bot.send_message(
+                    passenger_user.id,
+                    passenger_text,
+                    parse_mode="HTML",
+                    reply_markup=confirmed_trip_passenger_kb(match.id, track_url),
+                )
+            except Exception:
+                pass
+
+        await session.commit()
+
+
 async def notify_new_match(bot, trip: Trip, matched_trip: Trip, match: "Match") -> None:
     """Notify one party about a potential match, with map button."""
     from keyboards.keyboards import trip_offer_response_kb
