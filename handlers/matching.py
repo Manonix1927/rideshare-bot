@@ -27,31 +27,45 @@ _share_location_kb = ReplyKeyboardMarkup(
 )
 
 
-@router.message(F.location)
-async def handle_driver_live_location(message: Message, session: AsyncSession) -> None:
-    """Store driver's live location update for active confirmed match."""
+async def _save_driver_location(user_id: int, lat: float, lon: float, session: AsyncSession) -> None:
     result = await session.execute(
         select(Match)
         .join(Trip, Match.driver_trip_id == Trip.id)
-        .where(Trip.user_id == message.from_user.id, Match.status == "CONFIRMED")
+        .where(Trip.user_id == user_id, Match.status == "CONFIRMED")
     )
     match = result.scalars().first()
     if not match:
         return
-
     loc = await session.get(DriverLocation, match.id)
     if loc:
-        loc.lat = message.location.latitude
-        loc.lon = message.location.longitude
+        loc.lat = lat
+        loc.lon = lon
         loc.updated_at = datetime.utcnow()
     else:
-        loc = DriverLocation(
-            match_id=match.id,
-            lat=message.location.latitude,
-            lon=message.location.longitude,
-        )
-        session.add(loc)
+        session.add(DriverLocation(match_id=match.id, lat=lat, lon=lon))
     await session.commit()
+
+
+@router.message(F.location)
+async def handle_driver_live_location(message: Message, session: AsyncSession) -> None:
+    """Initial location share from driver."""
+    await _save_driver_location(
+        message.from_user.id,
+        message.location.latitude,
+        message.location.longitude,
+        session,
+    )
+
+
+@router.edited_message(F.location)
+async def handle_driver_live_location_update(message: Message, session: AsyncSession) -> None:
+    """Live location updates — Telegram sends these as edited_message, not new messages."""
+    await _save_driver_location(
+        message.from_user.id,
+        message.location.latitude,
+        message.location.longitude,
+        session,
+    )
 
 
 async def _get_match_with_trips(match_id: int, session: AsyncSession) -> Match | None:

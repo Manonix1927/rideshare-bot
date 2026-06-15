@@ -117,11 +117,51 @@ async def my_active_trips(callback: CallbackQuery, session: AsyncSession) -> Non
     await callback.answer()
 
 
+def _confirmed_trip_kb(match: Match, user_trip: Trip):
+    """Keyboard for confirmed trip: map button (passenger only) + contact + close."""
+    import urllib.parse
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton, WebAppInfo
+    from config import WEBAPP_URL, API_URL
+
+    builder = InlineKeyboardBuilder()
+
+    if user_trip.role == "passenger" and WEBAPP_URL and API_URL:
+        d = match.driver_trip
+        p = match.passenger_trip
+        params = {
+            "mode": "track",
+            "match_id": match.id,
+            "api_url": f"{API_URL}/location",
+            "d_from_lat": d.from_lat, "d_from_lon": d.from_lon,
+            "d_to_lat": d.to_lat, "d_to_lon": d.to_lon,
+            "p_from_lat": p.from_lat, "p_from_lon": p.from_lon,
+            "p_to_lat": p.to_lat, "p_to_lon": p.to_lon,
+            "d_from_addr": d.from_address, "d_to_addr": d.to_address,
+        }
+        track_url = WEBAPP_URL.rstrip("/") + "/?" + urllib.parse.urlencode(params)
+        builder.row(InlineKeyboardButton(
+            text="🗺 Відстежити водія на карті",
+            web_app=WebAppInfo(url=track_url),
+        ))
+
+    builder.row(InlineKeyboardButton(
+        text="📞 Контакт попутника", callback_data=f"show_contact:{match.id}"
+    ))
+    builder.row(InlineKeyboardButton(
+        text="🏁 Поїздка завершена", callback_data=f"manual_close:{match.id}"
+    ))
+    return builder.as_markup()
+
+
 @router.callback_query(F.data == "mytrips:confirmed")
 async def my_confirmed_trips(callback: CallbackQuery, session: AsyncSession) -> None:
     result = await session.execute(
         select(Trip)
-        .options(selectinload(Trip.driver_matches), selectinload(Trip.passenger_matches))
+        .options(
+            selectinload(Trip.driver_matches).selectinload(Match.passenger_trip),
+            selectinload(Trip.passenger_matches).selectinload(Match.driver_trip),
+        )
         .where(
             Trip.user_id == callback.from_user.id,
             Trip.status == "CONFIRMED",
@@ -135,7 +175,6 @@ async def my_confirmed_trips(callback: CallbackQuery, session: AsyncSession) -> 
 
     await callback.message.answer("✅ <b>Підтверджені поїздки:</b>", parse_mode="HTML")
     for trip in trips:
-        # Find confirmed match
         all_matches = list(trip.driver_matches) + list(trip.passenger_matches)
         confirmed_match = next(
             (m for m in all_matches if m.status == "CONFIRMED"), None
@@ -144,7 +183,7 @@ async def my_confirmed_trips(callback: CallbackQuery, session: AsyncSession) -> 
         if confirmed_match:
             await callback.message.answer(
                 card, parse_mode="HTML",
-                reply_markup=confirmed_trip_contact_kb(confirmed_match.id),
+                reply_markup=_confirmed_trip_kb(confirmed_match, trip),
             )
         else:
             await callback.message.answer(card, parse_mode="HTML")
