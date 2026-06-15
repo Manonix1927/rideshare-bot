@@ -3,7 +3,7 @@ Handles match confirmation/rejection flow and post-trip rating.
 """
 from datetime import datetime
 from aiogram import Router, F, Bot
-from aiogram.types import CallbackQuery, Message, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select
@@ -19,12 +19,6 @@ from keyboards.keyboards import (
 from services.matching import confirm_match_side, reject_match, get_match_for_user
 
 router = Router()
-
-_share_location_kb = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text="📍 Поділитись live-геолокацією", request_location=True)]],
-    resize_keyboard=True,
-    one_time_keyboard=False,
-)
 
 
 async def _save_driver_location(user_id: int, lat: float, lon: float, session: AsyncSession) -> None:
@@ -158,8 +152,12 @@ async def match_confirm(callback: CallbackQuery, session: AsyncSession, bot: Bot
             )
             await bot.send_message(
                 driver_user.id,
-                "📍 Поділіться live-геолокацією — пасажир бачитиме вас на карті в реальному часі:",
-                reply_markup=_share_location_kb,
+                "📍 <b>Увімкніть трансляцію геопозиції</b>, щоб пасажир бачив вас на карті:\n\n"
+                "1️⃣ Натисніть 📎 (скріпка) → <b>Місцезнаходження</b>\n"
+                "2️⃣ Оберіть <b>«Транслювати геопозицію»</b>\n"
+                "3️⃣ Оберіть тривалість — <b>8 годин</b>\n\n"
+                "<i>⚠️ «Поточне місцезнаходження» — статична точка, вона не оновлюється!</i>",
+                parse_mode="HTML",
             )
             # Passenger gets contact + tracking button
             await bot.send_message(
