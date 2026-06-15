@@ -59,7 +59,7 @@ async def geocode_address(
         ]
 
     async def _geocode(vb, bounded):
-        kwargs = {"country_codes": "ua", "language": "uk"}
+        kwargs = {"country_codes": "ua", "language": "uk", "addressdetails": True}
         if vb:
             kwargs["viewbox"] = vb
             kwargs["bounded"] = bounded
