@@ -6,10 +6,11 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, REDIS_URL
 from database.database import init_db, AsyncSessionLocal
 from database.models import DriverLocation
 from handlers import start, driver, passenger, announcements, my_trips, rating, support, faq, admin, matching
@@ -110,7 +111,15 @@ async def main() -> None:
         token=BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dp = Dispatcher(storage=MemoryStorage())
+
+    if REDIS_URL:
+        storage = RedisStorage.from_url(REDIS_URL)
+        logger.info("FSM storage: Redis")
+    else:
+        storage = MemoryStorage()
+        logger.info("FSM storage: Memory (no REDIS_URL set)")
+
+    dp = Dispatcher(storage=storage)
 
     dp.update.middleware(DbSessionMiddleware())
 
