@@ -1,9 +1,39 @@
+from datetime import date, timedelta
+
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton,
     WebAppInfo,
 )
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+
+_DAYS_UA = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
+
+
+def date_picker_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    today = date.today()
+    for i in range(7):
+        d = today + timedelta(days=i)
+        if i == 0:
+            label = f"Сьогодні {d.strftime('%d.%m')}"
+        elif i == 1:
+            label = f"Завтра {d.strftime('%d.%m')}"
+        else:
+            label = f"{_DAYS_UA[d.weekday()]} {d.strftime('%d.%m')}"
+        builder.button(text=label, callback_data=f"dt_date:{d.isoformat()}")
+    builder.adjust(3, 3, 1)
+    builder.row(InlineKeyboardButton(text="✏️ Ввести вручну", callback_data="dt_manual"))
+    return builder.as_markup()
+
+
+def time_picker_kb(date_iso: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for hour in range(6, 24):
+        builder.button(text=f"{hour:02d}:00", callback_data=f"dt_time:{date_iso}:{hour:02d}:00")
+    builder.adjust(4)
+    builder.row(InlineKeyboardButton(text="✏️ Ввести вручну", callback_data=f"dt_manual_time:{date_iso}"))
+    return builder.as_markup()
 
 
 def main_menu_kb() -> ReplyKeyboardMarkup:

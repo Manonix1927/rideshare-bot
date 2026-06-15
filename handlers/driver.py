@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from database.models import Trip, User
-from keyboards.keyboards import geo_or_text_kb, cancel_kb, main_menu_kb, confirm_address_kb
+from keyboards.keyboards import geo_or_text_kb, cancel_kb, main_menu_kb, confirm_address_kb, date_picker_kb, time_picker_kb
 from services.geo import geocode_address, reverse_geocode, get_city_from_coords
 from services.matching import find_matches_for_trip, create_match
 from services.notifications import notify_new_match
@@ -103,10 +103,9 @@ async def driver_to_location(message: Message, state: FSMContext) -> None:
     await state.update_data(to_lat=lat, to_lon=lon, to_address=address)
     await state.set_state(DriverStates.departure_time)
     await message.answer(
-        f"✅ Призначення: {address}\n\n🚗 <b>Крок 3/5</b>\n\n"
-        "Вкажіть запланований час виїзду:\n<i>(Формат: ДД.ММ.РРРР ГГ:ХХ або ГГ:ХХ для сьогодні)</i>",
+        f"✅ Призначення: {address}\n\n🚗 <b>Крок 3/5</b>\n\nОберіть дату виїзду:",
         parse_mode="HTML",
-        reply_markup=cancel_kb(),
+        reply_markup=date_picker_kb(),
     )
 
 
@@ -152,9 +151,9 @@ async def driver_addr_ok(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(DriverStates.departure_time)
     await callback.message.edit_text(
         f"✅ Призначення: {data['pending_to_address']}\n\n"
-        "🚗 <b>Крок 3/5</b>\n\n"
-        "Вкажіть запланований час виїзду:\n<i>(Формат: ДД.ММ.РРРР ГГ:ХХ або ГГ:ХХ для сьогодні)</i>",
+        "🚗 <b>Крок 3/5</b>\n\nОберіть дату виїзду:",
         parse_mode="HTML",
+        reply_markup=date_picker_kb(),
     )
     await callback.answer()
 
@@ -169,6 +168,63 @@ async def driver_addr_retry(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("dt_date:"), DriverStates.departure_time)
+async def driver_dt_date(callback: CallbackQuery, state: FSMContext) -> None:
+    date_iso = callback.data.split(":", 1)[1]
+    await state.update_data(_dt_date=date_iso)
+    d = date.fromisoformat(date_iso)
+    label = "сьогодні" if d == date.today() else d.strftime("%d.%m.%Y")
+    await callback.message.edit_text(
+        f"📅 Дата: <b>{label}</b>\n\nОберіть час виїзду:",
+        parse_mode="HTML",
+        reply_markup=time_picker_kb(date_iso),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("dt_time:"), DriverStates.departure_time)
+async def driver_dt_time(callback: CallbackQuery, state: FSMContext) -> None:
+    parts = callback.data.split(":")  # ["dt_time", "2026-06-15", "14", "00"]
+    date_iso, hour, minute = parts[1], parts[2], parts[3]
+    dt = datetime.strptime(f"{date_iso} {hour}:{minute}", "%Y-%m-%d %H:%M")
+    if dt < datetime.now():
+        await callback.answer("❌ Цей час вже минув!", show_alert=True)
+        return
+    await state.update_data(departure_time=dt.isoformat())
+    await state.set_state(DriverStates.price)
+    await callback.message.edit_text(
+        f"✅ Час виїзду: <b>{dt.strftime('%d.%m.%Y %H:%M')}</b>\n\n"
+        "🚗 <b>Крок 4/5</b>\n\nВкажіть вартість поїздки для одного пасажира (грн):",
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "dt_manual", DriverStates.departure_time)
+async def driver_dt_manual(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.update_data(_dt_mode="full")
+    await callback.message.edit_text(
+        "✏️ Введіть дату та час виїзду:\n"
+        "<i>Формат: ДД.ММ ГГ:ХХ або ДД.ММ.РРРР ГГ:ХХ\n"
+        "Наприклад: 25.06 14:30</i>",
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("dt_manual_time:"), DriverStates.departure_time)
+async def driver_dt_manual_time(callback: CallbackQuery, state: FSMContext) -> None:
+    date_iso = callback.data.split(":", 1)[1]
+    await state.update_data(_dt_date=date_iso, _dt_mode="time_only")
+    d = date.fromisoformat(date_iso)
+    await callback.message.edit_text(
+        f"📅 Дата: <b>{d.strftime('%d.%m.%Y')}</b>\n\n"
+        "✏️ Введіть час виїзду:\n<i>Формат: ГГ:ХХ, наприклад: 14:30</i>",
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
 @router.message(DriverStates.departure_time, F.text)
 async def driver_time(message: Message, state: FSMContext) -> None:
     if message.text == "🔙 Головне меню":
@@ -176,13 +232,29 @@ async def driver_time(message: Message, state: FSMContext) -> None:
         await message.answer("Головне меню:", reply_markup=main_menu_kb())
         return
 
-    dt = _parse_datetime(message.text)
-    if not dt:
-        await message.answer(
-            "❌ Неправильний формат. Введіть час, наприклад: <code>25.06.2025 14:30</code> або <code>14:30</code>",
-            parse_mode="HTML",
-        )
-        return
+    data = await state.get_data()
+    dt_mode = data.get("_dt_mode", "full")
+
+    if dt_mode == "time_only":
+        date_iso = data.get("_dt_date")
+        try:
+            d = date.fromisoformat(date_iso)
+            t = datetime.strptime(message.text.strip(), "%H:%M").time()
+            dt = datetime.combine(d, t)
+        except ValueError:
+            await message.answer(
+                "❌ Неправильний формат. Введіть час, наприклад: <code>14:30</code>",
+                parse_mode="HTML",
+            )
+            return
+    else:
+        dt = _parse_datetime(message.text)
+        if not dt:
+            await message.answer(
+                "❌ Неправильний формат. Введіть: <code>25.06 14:30</code> або <code>25.06.2026 14:30</code>",
+                parse_mode="HTML",
+            )
+            return
 
     if dt < datetime.now():
         await message.answer("❌ Час поїздки вже минув. Введіть майбутній час.")
