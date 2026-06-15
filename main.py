@@ -13,7 +13,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import BOT_TOKEN, REDIS_URL
 from database.database import init_db, AsyncSessionLocal
 from database.models import DriverLocation
-from handlers import start, driver, passenger, announcements, my_trips, rating, support, faq, admin, matching
+from handlers import start, driver, passenger, announcements, my_trips, rating, support, faq, admin, matching, search
 from services.notifications import auto_close_expired_trips, send_rating_prompts
 
 logging.basicConfig(
@@ -126,6 +126,7 @@ async def main() -> None:
     dp.include_router(start.router)
     dp.include_router(driver.router)
     dp.include_router(passenger.router)
+    dp.include_router(search.router)
     dp.include_router(announcements.router)
     dp.include_router(my_trips.router)
     dp.include_router(matching.router)

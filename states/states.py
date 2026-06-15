@@ -39,3 +39,7 @@ class AdminStates(StatesGroup):
     editing_faq_question = State()
     editing_faq_answer = State()
     replying_to_ticket = State()
+
+
+class SearchStates(StatesGroup):
+    waiting_location = State()

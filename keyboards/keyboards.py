@@ -13,16 +13,16 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
         KeyboardButton(text="🙋 Я пасажир"),
     )
     builder.row(
-        KeyboardButton(text="📢 Всі оголошення"),
+        KeyboardButton(text="🔍 Поїздки поруч"),
         KeyboardButton(text="📋 Мої поїздки"),
     )
     builder.row(
+        KeyboardButton(text="📢 Всі оголошення"),
         KeyboardButton(text="⭐ Мій рейтинг"),
-        KeyboardButton(text="🛟 Підтримка"),
     )
     builder.row(
+        KeyboardButton(text="🛟 Підтримка"),
         KeyboardButton(text="❓ Часті питання"),
-        KeyboardButton(text="ℹ️ Як це працює"),
     )
     return builder.as_markup(resize_keyboard=True)
 
