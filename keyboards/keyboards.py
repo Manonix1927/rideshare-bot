@@ -17,10 +17,7 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
         KeyboardButton(text="📋 Мої поїздки"),
     )
     builder.row(
-        KeyboardButton(text="📢 Всі оголошення"),
         KeyboardButton(text="⭐ Мій рейтинг"),
-    )
-    builder.row(
         KeyboardButton(text="🛟 Підтримка"),
         KeyboardButton(text="❓ Часті питання"),
     )
