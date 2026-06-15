@@ -118,7 +118,7 @@ async def my_active_trips(callback: CallbackQuery, session: AsyncSession) -> Non
 
 
 def _confirmed_trip_kb(match: Match, user_trip: Trip):
-    """Keyboard for confirmed trip: map button (passenger only) + contact + close."""
+    """Keyboard for confirmed trip: map button + contact + close."""
     import urllib.parse
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     from aiogram.types import InlineKeyboardButton, WebAppInfo
@@ -126,13 +126,17 @@ def _confirmed_trip_kb(match: Match, user_trip: Trip):
 
     builder = InlineKeyboardBuilder()
 
-    if user_trip.role == "passenger" and WEBAPP_URL and API_URL:
+    if WEBAPP_URL and API_URL:
         d = match.driver_trip
         p = match.passenger_trip
+        driver_user_id = d.user_id
+        passenger_user_id = p.user_id
         params = {
             "mode": "track",
             "match_id": match.id,
             "api_url": f"{API_URL}/location",
+            "driver_user_id": driver_user_id,
+            "passenger_user_id": passenger_user_id,
             "d_from_lat": d.from_lat, "d_from_lon": d.from_lon,
             "d_to_lat": d.to_lat, "d_to_lon": d.to_lon,
             "p_from_lat": p.from_lat, "p_from_lon": p.from_lon,
@@ -140,8 +144,9 @@ def _confirmed_trip_kb(match: Match, user_trip: Trip):
             "d_from_addr": d.from_address, "d_to_addr": d.to_address,
         }
         track_url = WEBAPP_URL.rstrip("/") + "/?" + urllib.parse.urlencode(params)
+        label = "🗺 Відкрити карту поїздки" if user_trip.role == "driver" else "🗺 Відстежити водія на карті"
         builder.row(InlineKeyboardButton(
-            text="🗺 Відстежити водія на карті",
+            text=label,
             web_app=WebAppInfo(url=track_url),
         ))
 

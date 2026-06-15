@@ -116,10 +116,14 @@ async def match_confirm(callback: CallbackQuery, session: AsyncSession, bot: Bot
             + (f" (@{passenger_user.username})" if passenger_user.username else "")
         )
 
-        # Build passenger tracking map button
+        # Build tracking URL (same for both — Mini App identifies role via initData)
         from config import WEBAPP_URL, API_URL
         import urllib.parse
-        tracking_btn = None
+        from aiogram.types import InlineKeyboardButton, WebAppInfo
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+        tracking_btn_driver = None
+        tracking_btn_passenger = None
         if WEBAPP_URL and API_URL:
             d = match.driver_trip
             p = match.passenger_trip
@@ -127,6 +131,8 @@ async def match_confirm(callback: CallbackQuery, session: AsyncSession, bot: Bot
                 "mode": "track",
                 "match_id": match.id,
                 "api_url": f"{API_URL}/location",
+                "driver_user_id": driver_user.id,
+                "passenger_user_id": passenger_user.id,
                 "d_from_lat": d.from_lat, "d_from_lon": d.from_lon,
                 "d_to_lat": d.to_lat,   "d_to_lon": d.to_lon,
                 "p_from_lat": p.from_lat, "p_from_lon": p.from_lon,
@@ -134,37 +140,35 @@ async def match_confirm(callback: CallbackQuery, session: AsyncSession, bot: Bot
                 "d_from_addr": d.from_address, "d_to_addr": d.to_address,
             }
             track_url = WEBAPP_URL.rstrip("/") + "/?" + urllib.parse.urlencode(params)
-            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-            from aiogram.utils.keyboard import InlineKeyboardBuilder
-            builder = InlineKeyboardBuilder()
-            builder.row(InlineKeyboardButton(
+
+            b1 = InlineKeyboardBuilder()
+            b1.row(InlineKeyboardButton(
+                text="🗺 Відкрити карту поїздки",
+                web_app=WebAppInfo(url=track_url),
+            ))
+            tracking_btn_driver = b1.as_markup()
+
+            b2 = InlineKeyboardBuilder()
+            b2.row(InlineKeyboardButton(
                 text="🗺 Відстежити водія на карті",
                 web_app=WebAppInfo(url=track_url),
             ))
-            tracking_btn = builder.as_markup()
+            tracking_btn_passenger = b2.as_markup()
 
         try:
-            # Driver gets contact + live location request
             await bot.send_message(
                 driver_user.id,
-                contact_text + passenger_contact,
+                contact_text + passenger_contact + "\n\n"
+                "📍 <b>Відкрийте карту</b> — пасажир бачитиме ваше місцезнаходження в реальному часі.",
                 parse_mode="HTML",
+                reply_markup=tracking_btn_driver,
             )
-            await bot.send_message(
-                driver_user.id,
-                "📍 <b>Увімкніть трансляцію геопозиції</b>, щоб пасажир бачив вас на карті:\n\n"
-                "1️⃣ Натисніть 📎 (скріпка) → <b>Місцезнаходження</b>\n"
-                "2️⃣ Оберіть <b>«Транслювати геопозицію»</b>\n"
-                "3️⃣ Оберіть тривалість — <b>8 годин</b>\n\n"
-                "<i>⚠️ «Поточне місцезнаходження» — статична точка, вона не оновлюється!</i>",
-                parse_mode="HTML",
-            )
-            # Passenger gets contact + tracking button
             await bot.send_message(
                 passenger_user.id,
-                contact_text + driver_contact,
+                contact_text + driver_contact + "\n\n"
+                "📍 <b>Відкрийте карту</b> — побачите водія в реальному часі.",
                 parse_mode="HTML",
-                reply_markup=tracking_btn,
+                reply_markup=tracking_btn_passenger,
             )
         except Exception:
             pass

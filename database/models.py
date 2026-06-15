@@ -114,3 +114,12 @@ class DriverLocation(Base):
     lat = Column(Float, nullable=False)
     lon = Column(Float, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PassengerLocation(Base):
+    __tablename__ = "passenger_locations"
+
+    match_id = Column(Integer, ForeignKey("matches.id"), primary_key=True)
+    lat = Column(Float, nullable=False)
+    lon = Column(Float, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow)
