@@ -12,6 +12,30 @@ _geocoder = Nominatim(user_agent=NOMINATIM_UA, timeout=10)
 _VIEWBOX_DEG = 0.5
 
 
+def _format_address(raw: dict) -> str:
+    """
+    Format Nominatim raw address dict into a short human-readable string.
+    Result: "вул. Хрещатик, 22, Київ"  or  "вул. Хрещатик, 22, Шевченківський р-н, Київ"
+    """
+    a = raw.get("address", {}) if "address" in raw else raw
+
+    road        = a.get("road") or a.get("pedestrian") or a.get("footway") or ""
+    house       = a.get("house_number", "")
+    district    = a.get("city_district") or a.get("suburb") or ""
+    city        = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or ""
+
+    parts = []
+    if road:
+        parts.append(f"{road}, {house}".rstrip(", ") if house else road)
+    if district and not road:
+        # No street info — show district so address isn't just "Київ"
+        parts.append(district)
+    if city:
+        parts.append(city)
+
+    return ", ".join(p for p in parts if p) or city or "Невідома адреса"
+
+
 async def geocode_address(
     address: str,
     near_lat: float | None = None,
@@ -50,18 +74,18 @@ async def geocode_address(
     if viewbox:
         loc = await _geocode(viewbox, bounded=True)
         if loc:
-            return loc.latitude, loc.longitude, loc.address
+            return loc.latitude, loc.longitude, _format_address(loc.raw)
 
     # 2) Try biased but not strictly bounded (prefers the area)
     if viewbox:
         loc = await _geocode(viewbox, bounded=False)
         if loc:
-            return loc.latitude, loc.longitude, loc.address
+            return loc.latitude, loc.longitude, _format_address(loc.raw)
 
     # 3) Country-wide fallback
     loc = await _geocode(None, False)
     if loc:
-        return loc.latitude, loc.longitude, loc.address
+        return loc.latitude, loc.longitude, _format_address(loc.raw)
 
     return None
 
@@ -89,7 +113,7 @@ async def reverse_geocode(lat: float, lon: float) -> str:
             None, lambda: _geocoder.reverse((lat, lon), language="uk")
         )
         if location:
-            return location.address
+            return _format_address(location.raw)
     except (GeocoderTimedOut, GeocoderServiceError):
         pass
     return f"{lat:.5f}, {lon:.5f}"
