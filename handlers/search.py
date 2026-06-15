@@ -185,7 +185,7 @@ async def _show_search_results(
 
 # ── Paginated results ──────────────────────────────────────────────────────────
 
-@router.callback_query(F.data.startswith("search:"))
+@router.callback_query(F.data.regexp(r"^search:(driver|passenger):"))
 async def search_results_page(callback: CallbackQuery, session: AsyncSession) -> None:
     parts = callback.data.split(":")
     role, page_str, lat_str, lon_str = parts[1], parts[2], parts[3], parts[4]
