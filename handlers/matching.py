@@ -18,6 +18,7 @@ from keyboards.keyboards import (
 )
 from services.matching import confirm_match_side, reject_match, get_match_for_user
 from services.tracking import build_track_url
+from services import bot_settings as _s
 from keyboards.keyboards import confirmed_trip_driver_kb, confirmed_trip_passenger_kb
 
 router = Router()
@@ -123,17 +124,13 @@ async def match_confirm(callback: CallbackQuery, session: AsyncSession, bot: Bot
         try:
             await bot.send_message(
                 driver_user.id,
-                contact_text + passenger_contact + "\n\n"
-                "📍 Натисніть «Виїхав до попутника» коли вирушите. "
-                "Пасажир отримає сповіщення.",
+                contact_text + passenger_contact + "\n\n" + _s.get("msg_confirmed_driver"),
                 parse_mode="HTML",
                 reply_markup=confirmed_trip_driver_kb(match.id, track_url),
             )
             await bot.send_message(
                 passenger_user.id,
-                contact_text + driver_contact + "\n\n"
-                "📍 Очікуйте — водій натисне кнопку «Виїхав», "
-                "тоді вам прийде сповіщення.",
+                contact_text + driver_contact + "\n\n" + _s.get("msg_confirmed_pax"),
                 parse_mode="HTML",
                 reply_markup=confirmed_trip_passenger_kb(match.id, track_url),
             )

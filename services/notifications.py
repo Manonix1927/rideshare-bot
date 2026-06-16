@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from database.database import AsyncSessionLocal
 from database.models import Trip, Match, User
 from config import WEBAPP_URL
+from services import bot_settings as _s
 
 
 def _match_map_url(driver_trip: Trip, passenger_trip: Trip, role: str) -> str:
@@ -140,16 +141,14 @@ async def send_trip_reminders(bot) -> None:
             to_addr   = ", ".join(match.driver_trip.to_address.split(",")[:2]).strip()
             time_str  = match.driver_trip.departure_time.strftime("%H:%M")
 
+            reminder_tpl = _s.get("msg_reminder")
+            base = reminder_tpl.replace("{route}", f"{from_addr} → {to_addr}").replace("{time}", time_str)
             text = (
-                f"⏰ <b>Ваша поїздка через 10 хвилин!</b>\n\n"
-                f"🗺 {from_addr} → {to_addr}\n"
-                f"🕒 {time_str}\n\n"
+                f"{base}\n\n"
                 f"Попутник: {passenger_user.first_name} ⭐{passenger_user.rating:.1f}"
             )
             passenger_text = (
-                f"⏰ <b>Ваша поїздка через 10 хвилин!</b>\n\n"
-                f"🗺 {from_addr} → {to_addr}\n"
-                f"🕒 {time_str}\n\n"
+                f"{base}\n\n"
                 f"Водій: {driver_user.first_name} ⭐{driver_user.rating:.1f}"
             )
 

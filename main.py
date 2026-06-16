@@ -20,6 +20,7 @@ from database.database import init_db, AsyncSessionLocal
 from database.models import DriverLocation, PassengerLocation
 from handlers import start, driver, passenger, announcements, my_trips, rating, support, faq, admin, matching, search, trip_actions
 from services.notifications import auto_close_expired_trips, send_rating_prompts, send_trip_reminders
+from services.bot_settings import reload as reload_bot_settings
 from admin.routes import setup_admin
 
 logging.basicConfig(
@@ -216,10 +217,13 @@ async def main() -> None:
     dp.include_router(faq.router)
     dp.include_router(admin.router)
 
+    await reload_bot_settings()
+
     scheduler = AsyncIOScheduler()
     scheduler.add_job(auto_close_expired_trips, "interval", minutes=5, args=[bot])
     scheduler.add_job(send_rating_prompts, "interval", minutes=1, args=[bot])
     scheduler.add_job(send_trip_reminders, "interval", minutes=1, args=[bot])
+    scheduler.add_job(reload_bot_settings, "interval", minutes=1)
     scheduler.start()
 
     # Start HTTP API server

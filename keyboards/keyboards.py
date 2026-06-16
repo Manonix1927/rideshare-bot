@@ -1,5 +1,7 @@
 from datetime import date, timedelta
 
+from services import bot_settings as _s
+
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton,
@@ -246,26 +248,26 @@ def confirmed_trip_driver_kb(match_id: int, track_url: str | None) -> InlineKeyb
     builder = InlineKeyboardBuilder()
     if track_url:
         builder.row(InlineKeyboardButton(
-            text="🗺 Відкрити карту поїздки", web_app=WebAppInfo(url=track_url),
+            text=_s.get("btn_map_driver"), web_app=WebAppInfo(url=track_url),
         ))
     builder.row(InlineKeyboardButton(
-        text="🚀 Виїхав до попутника", callback_data=f"trip_departed:{match_id}",
+        text=_s.get("btn_departed"), callback_data=f"trip_departed:{match_id}",
     ))
     builder.row(InlineKeyboardButton(
-        text="❌ Відмінити поїздку", callback_data=f"trip_cancel:{match_id}:driver",
+        text=_s.get("btn_cancel_driver"), callback_data=f"trip_cancel:{match_id}:driver",
     ))
     return builder.as_markup()
 
 
 def confirmed_trip_passenger_kb(match_id: int, track_url: str | None) -> InlineKeyboardMarkup:
-    """Passenger: map + Відмінити (Виїхав кнопку немає)."""
+    """Passenger: map + Відмінити."""
     builder = InlineKeyboardBuilder()
     if track_url:
         builder.row(InlineKeyboardButton(
-            text="🗺 Відстежити водія на карті", web_app=WebAppInfo(url=track_url),
+            text=_s.get("btn_map_passenger"), web_app=WebAppInfo(url=track_url),
         ))
     builder.row(InlineKeyboardButton(
-        text="❌ Відмінити поїздку", callback_data=f"trip_cancel:{match_id}:passenger",
+        text=_s.get("btn_cancel_passenger"), callback_data=f"trip_cancel:{match_id}:passenger",
     ))
     return builder.as_markup()
 
@@ -275,21 +277,23 @@ def passenger_alert_kb(match_id: int, track_url: str | None) -> InlineKeyboardMa
     builder = InlineKeyboardBuilder()
     if track_url:
         builder.row(InlineKeyboardButton(
-            text="🗺 Відстежити водія", web_app=WebAppInfo(url=track_url),
+            text=_s.get("btn_map_pax"), web_app=WebAppInfo(url=track_url),
         ))
     builder.row(InlineKeyboardButton(
-        text="✅ Я на місці!", callback_data=f"passenger_ready:{match_id}",
+        text=_s.get("btn_ready"), callback_data=f"passenger_ready:{match_id}",
     ))
     builder.row(InlineKeyboardButton(
-        text="❌ Відмінити поїздку", callback_data=f"trip_cancel:{match_id}:passenger",
+        text=_s.get("btn_cancel_pax"), callback_data=f"trip_cancel:{match_id}:passenger",
     ))
     return builder.as_markup()
 
 
-def map_only_kb(track_url: str | None, label: str = "🗺 Відкрити карту") -> InlineKeyboardMarkup:
+def map_only_kb(track_url: str | None, label: str = "") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if track_url:
-        builder.row(InlineKeyboardButton(text=label, web_app=WebAppInfo(url=track_url)))
+        builder.row(InlineKeyboardButton(
+            text=label or _s.get("btn_map_rem"), web_app=WebAppInfo(url=track_url),
+        ))
     return builder.as_markup()
 
 
