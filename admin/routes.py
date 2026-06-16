@@ -396,6 +396,7 @@ def setup_admin(app: web.Application) -> None:
     app.router.add_get("/admin/logout",  admin_logout)
 
     # Pages
+    app.router.add_get("/admin",         lambda r: web.HTTPFound("/admin/"))
     app.router.add_get("/admin/",        admin_dashboard)
     app.router.add_get("/admin/trips",   admin_trips)
     app.router.add_get("/admin/users",   admin_users)
