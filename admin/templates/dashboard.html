@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
+{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>{% endblock %}
 {% block content %}
 <div class="page-title">📊 Dashboard</div>
 
@@ -103,4 +104,52 @@
     </div>
   </div>
 </div>
+
+<!-- Charts -->
+<div class="row g-3 mt-1">
+  <div class="col-12 col-xl-6">
+    <div class="card">
+      <div class="card-header">👥 Нові користувачі (30 днів)</div>
+      <div style="padding:16px"><canvas id="chartUsers" height="120"></canvas></div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-6">
+    <div class="card">
+      <div class="card-header">🚗 Нові поїздки (30 днів)</div>
+      <div style="padding:16px"><canvas id="chartTrips" height="120"></canvas></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+fetch('/admin/api/stats/daily')
+  .then(r => r.json())
+  .then(d => {
+    const isDark = document.getElementById('html-root').getAttribute('data-bs-theme') === 'dark';
+    const gc = isDark ? '#252836' : '#e5e7eb';
+    const tc = isDark ? '#6b7280' : '#374151';
+    const opts = (color) => ({
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: gc }, ticks: { color: tc, maxTicksLimit: 10, font: { size: 10 } } },
+        y: { grid: { color: gc }, ticks: { color: tc, precision: 0, font: { size: 10 } }, beginAtZero: true },
+      }
+    });
+    new Chart(document.getElementById('chartUsers'), {
+      type: 'line',
+      data: { labels: d.labels, datasets: [{ label: 'Користувачі', data: d.users,
+        borderColor: '#6c8ef7', backgroundColor: '#6c8ef720', fill: true, tension: 0.35, pointRadius: 2 }] },
+      options: opts('#6c8ef7'),
+    });
+    new Chart(document.getElementById('chartTrips'), {
+      type: 'bar',
+      data: { labels: d.labels, datasets: [{ label: 'Поїздки', data: d.trips,
+        backgroundColor: '#4ade8050', borderColor: '#4ade80', borderWidth: 1, borderRadius: 3 }] },
+      options: opts('#4ade80'),
+    });
+  })
+  .catch(() => {});
+</script>
 {% endblock %}

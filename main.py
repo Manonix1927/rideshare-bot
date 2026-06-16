@@ -229,6 +229,7 @@ async def main() -> None:
     # Start HTTP API server
     port = int(os.getenv("PORT", 8080))
     web_app = build_web_app()
+    web_app["bot"] = bot            # allows admin broadcast handler to send messages
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import User
 from keyboards.keyboards import main_menu_kb
+from services import bot_settings as _s
 
 router = Router()
 
@@ -49,6 +50,10 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession) 
         session,
     )
     await message.answer(START_TEXT, reply_markup=main_menu_kb())
+    if _s.get("banner_active") == "1":
+        banner = _s.get("banner_text").strip()
+        if banner:
+            await message.answer(f"📢 <b>Оголошення:</b>\n\n{banner}", parse_mode="HTML")
 
 
 @router.message(F.text == "🔙 Головне меню")

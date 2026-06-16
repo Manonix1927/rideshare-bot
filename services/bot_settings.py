@@ -10,6 +10,8 @@ from database.models import BotSetting
 
 # Defaults — same as admin/routes.py DEFAULT_SETTINGS
 DEFAULTS: dict[str, str] = {
+    "banner_active":        "0",
+    "banner_text":          "",
     "btn_driver":           "🚗 Я водій",
     "btn_passenger":        "🙋 Я пасажир",
     "btn_search":           "🔍 Поїздки поруч",

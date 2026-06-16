@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Статистика{% endblock %}
+{% block content %}
+<div class="page-title">📈 Статистика відмов</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-val" style="color:#f87171">{{ total_cancelled }}</div>
+      <div class="stat-lbl">Скасовано матчів</div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-val" style="color:#fbbf24">{{ total_rejected }}</div>
+      <div class="stat-lbl">Відхилено пропозицій</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- Driver cancellation reasons -->
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">🚗 Скасування водіями</div>
+      {% if driver_reasons %}
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead><tr><th>Причина</th><th style="text-align:right;width:60px">К-сть</th></tr></thead>
+          <tbody>
+            {% for reason, count in driver_reasons %}
+            <tr>
+              <td>{{ reason or '—' }}</td>
+              <td style="text-align:right;color:#6c8ef7;font-weight:600">{{ count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div style="padding:24px;text-align:center;color:var(--muted)">Немає даних</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Passenger cancellation reasons -->
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">🙋 Скасування пасажирами</div>
+      {% if passenger_reasons %}
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead><tr><th>Причина</th><th style="text-align:right;width:60px">К-сть</th></tr></thead>
+          <tbody>
+            {% for reason, count in passenger_reasons %}
+            <tr>
+              <td>{{ reason or '—' }}</td>
+              <td style="text-align:right;color:#c084fc;font-weight:600">{{ count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div style="padding:24px;text-align:center;color:var(--muted)">Немає даних</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Rejection reasons -->
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">❌ Причини відхилень</div>
+      {% if rejections %}
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead><tr><th>Причина</th><th style="text-align:right;width:60px">К-сть</th></tr></thead>
+          <tbody>
+            {% for reason, count in rejections %}
+            <tr>
+              <td>{{ reason or '—' }}</td>
+              <td style="text-align:right;color:#f87171;font-weight:600">{{ count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div style="padding:24px;text-align:center;color:var(--muted)">Немає даних</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if driver_reasons or passenger_reasons %}
+<div class="row g-3 mt-1">
+  <div class="col-12 col-xl-8">
+    <div class="card">
+      <div class="card-header">Топ причин скасування (разом)</div>
+      <div style="padding:16px"><canvas id="chartReasons" height="100"></canvas></div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if driver_reasons or passenger_reasons %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+  const merged = {};
+  {% for r, c in driver_reasons %}merged[{{ r|tojson }}] = (merged[{{ r|tojson }}]||0) + {{ c }};{% endfor %}
+  {% for r, c in passenger_reasons %}merged[{{ r|tojson }}] = (merged[{{ r|tojson }}]||0) + {{ c }};{% endfor %}
+
+  const entries = Object.entries(merged).sort((a,b) => b[1]-a[1]).slice(0,10);
+  const labels  = entries.map(e => e[0] || '—');
+  const counts  = entries.map(e => e[1]);
+
+  const isDark = document.getElementById('html-root').getAttribute('data-bs-theme') === 'dark';
+  const gc = isDark ? '#252836' : '#e5e7eb';
+  const tc = isDark ? '#6b7280' : '#374151';
+
+  new Chart(document.getElementById('chartReasons'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ label: 'Скасувань', data: counts,
+        backgroundColor: '#f8717150', borderColor: '#f87171', borderWidth: 1, borderRadius: 3 }]
+    },
+    options: {
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: gc }, ticks: { color: tc, precision: 0, font: { size: 11 } }, beginAtZero: true },
+        y: { grid: { color: gc }, ticks: { color: tc, font: { size: 11 } } },
+      }
+    }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

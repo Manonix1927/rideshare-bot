@@ -3,8 +3,10 @@ Web admin panel routes for the RideShare Telegram bot.
 Mount via setup_admin(app) in main.py.
 Auth: ADMIN_TOKEN env var (cookie-based session).
 """
+import asyncio
 import hashlib
 import os
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import aiohttp_jinja2
@@ -20,6 +22,9 @@ ADMIN_TOKEN: str = os.getenv("ADMIN_TOKEN", "changeme")
 _COOKIE = "adm_s"
 
 DEFAULT_SETTINGS: dict[str, str] = {
+    # Banner
+    "banner_active":        "0",
+    "banner_text":          "",
     # Main menu
     "btn_driver":           "🚗 Я водій",
     "btn_passenger":        "🙋 Я пасажир",
@@ -384,6 +389,318 @@ async def api_trips_map(request: web.Request) -> web.Response:
     return web.json_response({"type": "FeatureCollection", "features": features})
 
 
+# ── Broadcast ────────────────────────────────────────────────────────────────
+
+@_require_auth
+async def admin_broadcast_get(request: web.Request) -> web.Response:
+    async with AsyncSessionLocal() as s:
+        bt = await s.get(BotSetting, "banner_text")
+        ba = await s.get(BotSetting, "banner_active")
+    return aiohttp_jinja2.render_template("broadcast.html", request, {
+        "active": "broadcast", "sent": None, "failed": 0, "error": None,
+        "banner_text":   bt.value if bt else "",
+        "banner_active": ba.value if ba else "0",
+    })
+
+
+@_require_auth
+async def admin_broadcast_post(request: web.Request) -> web.Response:
+    data = await request.post()
+    text = data.get("text", "").strip()
+    parse_mode = data.get("parse_mode", "HTML")
+
+    async with AsyncSessionLocal() as s:
+        bt = await s.get(BotSetting, "banner_text")
+        ba = await s.get(BotSetting, "banner_active")
+    ctx_banner = {"banner_text": bt.value if bt else "", "banner_active": ba.value if ba else "0"}
+
+    if not text:
+        return aiohttp_jinja2.render_template("broadcast.html", request, {
+            "active": "broadcast", "sent": None, "failed": 0,
+            "error": "Порожнє повідомлення", **ctx_banner,
+        })
+
+    bot = request.app.get("bot")
+    if not bot:
+        return aiohttp_jinja2.render_template("broadcast.html", request, {
+            "active": "broadcast", "sent": None, "failed": 0,
+            "error": "Bot не ініціалізовано — перезапустіть сервер", **ctx_banner,
+        })
+
+    async with AsyncSessionLocal() as s:
+        users = (await s.execute(
+            select(User).where(User.is_blocked == False)
+        )).scalars().all()
+
+    sent, failed = 0, 0
+    for user in users:
+        try:
+            await bot.send_message(user.id, text, parse_mode=parse_mode)
+            sent += 1
+            await asyncio.sleep(0.04)          # ≤25 msg/sec — Telegram limit is 30
+        except Exception:
+            failed += 1
+
+    return aiohttp_jinja2.render_template("broadcast.html", request, {
+        "active": "broadcast", "sent": sent, "failed": failed, "error": None,
+        **ctx_banner,
+    })
+
+
+# ── Banner save ───────────────────────────────────────────────────────────────
+
+@_require_auth
+async def admin_banner_save(request: web.Request) -> web.Response:
+    data = await request.post()
+    banner_text   = data.get("banner_text",   "").strip()
+    banner_active = "1" if data.get("banner_active", "0") == "1" else "0"
+    async with AsyncSessionLocal() as s:
+        for key, value in (("banner_text", banner_text), ("banner_active", banner_active)):
+            row = await s.get(BotSetting, key)
+            if row:
+                row.value = value
+            else:
+                s.add(BotSetting(key=key, value=value))
+        await s.commit()
+    raise web.HTTPFound("/admin/broadcast")
+
+
+# ── Stats ─────────────────────────────────────────────────────────────────────
+
+@_require_auth
+async def admin_stats(request: web.Request) -> web.Response:
+    async with AsyncSessionLocal() as s:
+        matches = (await s.execute(
+            select(Match).where(Match.status.in_(["CANCELLED", "REJECTED"]))
+        )).scalars().all()
+
+    driver_reasons: dict[str, int] = {}
+    passenger_reasons: dict[str, int] = {}
+    rejection_counts: dict[str, int] = {}
+
+    for m in matches:
+        cr = getattr(m, "cancel_reason", None)
+        if cr:
+            cb = getattr(m, "cancelled_by", None)
+            if cb == "driver":
+                driver_reasons[cr] = driver_reasons.get(cr, 0) + 1
+            elif cb == "passenger":
+                passenger_reasons[cr] = passenger_reasons.get(cr, 0) + 1
+        rr = getattr(m, "rejection_reason", None)
+        if rr:
+            rejection_counts[rr] = rejection_counts.get(rr, 0) + 1
+
+    return aiohttp_jinja2.render_template("stats.html", request, {
+        "active": "stats",
+        "driver_reasons":    sorted(driver_reasons.items(),    key=lambda x: -x[1]),
+        "passenger_reasons": sorted(passenger_reasons.items(), key=lambda x: -x[1]),
+        "rejections":        sorted(rejection_counts.items(),  key=lambda x: -x[1]),
+        "total_cancelled":   sum(1 for m in matches if m.status == "CANCELLED"),
+        "total_rejected":    sum(1 for m in matches if m.status == "REJECTED"),
+    })
+
+
+# ── Manual Match ──────────────────────────────────────────────────────────────
+
+@_require_auth
+async def admin_manual_match_get(request: web.Request) -> web.Response:
+    async with AsyncSessionLocal() as s:
+        driver_trips = (await s.execute(
+            select(Trip).options(selectinload(Trip.user))
+            .where(Trip.role == "driver", Trip.status == "ACTIVE")
+            .order_by(Trip.departure_time)
+        )).scalars().all()
+        passenger_trips = (await s.execute(
+            select(Trip).options(selectinload(Trip.user))
+            .where(Trip.role == "passenger", Trip.status == "ACTIVE")
+            .order_by(Trip.departure_time)
+        )).scalars().all()
+    return aiohttp_jinja2.render_template("manual_match.html", request, {
+        "active": "matches",
+        "driver_trips":    driver_trips,
+        "passenger_trips": passenger_trips,
+        "result": None, "error": None, "match_id": None,
+    })
+
+
+@_require_auth
+async def admin_manual_match_post(request: web.Request) -> web.Response:
+    data = await request.post()
+    try:
+        dtid = int(data.get("driver_trip_id", 0))
+        ptid = int(data.get("passenger_trip_id", 0))
+    except (ValueError, TypeError):
+        dtid = ptid = 0
+
+    if not dtid or not ptid:
+        return aiohttp_jinja2.render_template("manual_match.html", request, {
+            "active": "matches", "driver_trips": [], "passenger_trips": [],
+            "result": "error", "error": "Оберіть обидві поїздки", "match_id": None,
+        })
+
+    async with AsyncSessionLocal() as s:
+        driver_trip    = await s.get(Trip, dtid)
+        passenger_trip = await s.get(Trip, ptid)
+
+        if not driver_trip or not passenger_trip:
+            return aiohttp_jinja2.render_template("manual_match.html", request, {
+                "active": "matches", "driver_trips": [], "passenger_trips": [],
+                "result": "error", "error": "Поїздку не знайдено", "match_id": None,
+            })
+
+        existing = (await s.execute(
+            select(Match).where(
+                Match.driver_trip_id == dtid,
+                Match.passenger_trip_id == ptid,
+                Match.status.in_(["PENDING", "CONFIRMED"]),
+            )
+        )).scalars().first()
+
+        if existing:
+            return aiohttp_jinja2.render_template("manual_match.html", request, {
+                "active": "matches", "driver_trips": [], "passenger_trips": [],
+                "result": "error", "error": f"Матч вже існує (#{existing.id})", "match_id": None,
+            })
+
+        match = Match(
+            driver_trip_id=dtid,
+            passenger_trip_id=ptid,
+            status="PENDING",
+        )
+        s.add(match)
+        driver_trip.status    = "MATCHING"
+        passenger_trip.status = "MATCHING"
+        await s.commit()
+        await s.refresh(match)
+        match_id = match.id
+
+        d_user_id = driver_trip.user_id
+        p_user_id = passenger_trip.user_id
+        d_from = driver_trip.from_address.split(",")[0]
+        d_to   = driver_trip.to_address.split(",")[0]
+        p_from = passenger_trip.from_address.split(",")[0]
+        p_to   = passenger_trip.to_address.split(",")[0]
+
+    bot = request.app.get("bot")
+    if bot:
+        try:
+            await bot.send_message(
+                d_user_id,
+                f"🤝 <b>Новий матч (підібраний адміном)</b>\n\n"
+                f"📍 Маршрут пасажира: {p_from} → {p_to}\n\n"
+                f"Перевірте деталі та підтвердіть поїздку.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+        try:
+            await bot.send_message(
+                p_user_id,
+                f"🤝 <b>Новий матч (підібраний адміном)</b>\n\n"
+                f"🚗 Маршрут водія: {d_from} → {d_to}\n\n"
+                f"Перевірте деталі та підтвердіть поїздку.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
+    return aiohttp_jinja2.render_template("manual_match.html", request, {
+        "active": "matches", "driver_trips": [], "passenger_trips": [],
+        "result": "ok", "match_id": match_id, "error": None,
+    })
+
+
+# ── CSV Export ────────────────────────────────────────────────────────────────
+
+@_require_auth
+async def admin_export_users(request: web.Request) -> web.Response:
+    import csv, io
+    async with AsyncSessionLocal() as s:
+        users = (await s.execute(
+            select(User).order_by(User.created_at.desc())
+        )).scalars().all()
+
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["ID", "Ім'я", "Username", "Рейтинг", "Поїздок", "Успішних", "Заблоковано", "Зареєстрований"])
+    for u in users:
+        w.writerow([
+            u.id, u.first_name, u.username or "",
+            f"{u.rating:.1f}" if u.rating is not None else "",
+            u.trips_count or 0,
+            u.successful_trips or 0,
+            "Так" if u.is_blocked else "Ні",
+            u.created_at.strftime("%d.%m.%Y %H:%M") if u.created_at else "",
+        ])
+    return web.Response(
+        body=out.getvalue().encode("utf-8-sig"),
+        content_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=users.csv"},
+    )
+
+
+@_require_auth
+async def admin_export_trips(request: web.Request) -> web.Response:
+    import csv, io
+    async with AsyncSessionLocal() as s:
+        trips = (await s.execute(
+            select(Trip).options(selectinload(Trip.user)).order_by(Trip.created_at.desc())
+        )).scalars().all()
+
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["ID", "Роль", "Користувач", "Звідки", "Куди", "Час виїзду", "Ціна", "Місця", "Статус", "Створено"])
+    for t in trips:
+        w.writerow([
+            t.id,
+            "Водій" if t.role == "driver" else "Пасажир",
+            t.user.first_name if t.user else "",
+            t.from_address, t.to_address,
+            t.departure_time.strftime("%d.%m.%Y %H:%M") if t.departure_time else "",
+            t.price or "", t.seats or "", t.status,
+            t.created_at.strftime("%d.%m.%Y %H:%M") if t.created_at else "",
+        ])
+    return web.Response(
+        body=out.getvalue().encode("utf-8-sig"),
+        content_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=trips.csv"},
+    )
+
+
+# ── API: daily stats ──────────────────────────────────────────────────────────
+
+async def api_stats_daily(request: web.Request) -> web.Response:
+    if not _is_authed(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    now = datetime.utcnow()
+    since = now - timedelta(days=29)
+
+    async with AsyncSessionLocal() as s:
+        user_dts = (await s.execute(
+            select(User.created_at).where(User.created_at >= since)
+        )).scalars().all()
+        trip_dts = (await s.execute(
+            select(Trip.created_at).where(Trip.created_at >= since)
+        )).scalars().all()
+
+    labels = [(now - timedelta(days=i)).strftime("%m-%d") for i in range(29, -1, -1)]
+    uc: dict[str, int] = {}
+    for dt in user_dts:
+        if dt:
+            uc[dt.strftime("%m-%d")] = uc.get(dt.strftime("%m-%d"), 0) + 1
+    tc: dict[str, int] = {}
+    for dt in trip_dts:
+        if dt:
+            tc[dt.strftime("%m-%d")] = tc.get(dt.strftime("%m-%d"), 0) + 1
+
+    return web.json_response({
+        "labels": labels,
+        "users":  [uc.get(l, 0) for l in labels],
+        "trips":  [tc.get(l, 0) for l in labels],
+    })
+
+
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
 def setup_admin(app: web.Application) -> None:
@@ -413,7 +730,20 @@ def setup_admin(app: web.Application) -> None:
     app.router.add_get("/admin/settings",  admin_settings)
     app.router.add_post("/admin/settings", admin_settings_save)
 
+    # Broadcast
+    app.router.add_get ("/admin/broadcast",          admin_broadcast_get)
+    app.router.add_post("/admin/broadcast",          admin_broadcast_post)
+    app.router.add_post("/admin/broadcast/banner",   admin_banner_save)
+    # Stats
+    app.router.add_get ("/admin/stats",              admin_stats)
+    # Manual match
+    app.router.add_get ("/admin/manual-match",       admin_manual_match_get)
+    app.router.add_post("/admin/manual-match",       admin_manual_match_post)
+    # CSV export
+    app.router.add_get ("/admin/users/export.csv",   admin_export_users)
+    app.router.add_get ("/admin/trips/export.csv",   admin_export_trips)
     # JSON API
-    app.router.add_get("/admin/api/settings",       api_settings_get)
+    app.router.add_get ("/admin/api/settings",       api_settings_get)
     app.router.add_post("/admin/api/settings/{key}", api_settings_set)
-    app.router.add_get("/admin/api/trips/map",      api_trips_map)
+    app.router.add_get ("/admin/api/trips/map",      api_trips_map)
+    app.router.add_get ("/admin/api/stats/daily",    api_stats_daily)

@@ -4,7 +4,10 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 {% endblock %}
 {% block content %}
-<div class="page-title">🚗 Поїздки</div>
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div class="page-title mb-0">🚗 Поїздки</div>
+  <a href="/admin/trips/export.csv" class="btn btn-sm btn-outline-secondary">⬇️ CSV</a>
+</div>
 
 <div class="d-flex gap-2 mb-3 flex-wrap">
   {% for s, label in [('ACTIVE','Активні'), ('MATCHING','Пошук'), ('CONFIRMED','Підтверджені'), ('CLOSED','Закриті'), ('ALL','Всі')] %}
@@ -31,12 +34,12 @@
       </thead>
       <tbody>
         {% for t in trips %}
-        <tr>
+        <tr style="cursor:pointer" onclick="openTrip({{ t.id }})">
           <td style="color:#6b7280">#{{ t.id }}</td>
           <td><span class="badge badge-{{ t.role }} px-2 py-1" style="border-radius:5px;font-size:11px">{{ '🚗 Водій' if t.role == 'driver' else '🙋 Пасажир' }}</span></td>
           <td>
             {{ t.user.first_name if t.user else '?' }}
-            {% if t.user and t.user.username %}<span style="color:#6b7280;font-size:11px">@{{ t.user.username }}</span>{% endif %}
+            {% if t.user and t.user.username %}<span style="color:#6b7280;font-size:11px"> @{{ t.user.username }}</span>{% endif %}
           </td>
           <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.from_address.split(',')[0] }}</td>
           <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.to_address.split(',')[0] }}</td>
@@ -52,31 +55,52 @@
     </table>
   </div>
 </div>
+
+<!-- Trip detail modal -->
+<div class="modal fade" id="tripModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content" style="background:var(--card-bg);border:1px solid var(--sb-border)">
+      <div class="modal-header" style="border-color:var(--sb-border)">
+        <h5 class="modal-title" id="modalTitle">Деталі поїздки</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div id="detailMap" style="height:320px"></div>
+        <div id="detailInfo" style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px"></div>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+/* ── overview map ─────────────────────────────────────────────────────── */
+const isDark = document.getElementById('html-root').getAttribute('data-bs-theme') === 'dark';
+const tileUrl = isDark
+  ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+  : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+
 const map = L.map('map').setView([49.0, 31.5], 6);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '© OpenStreetMap © CartoDB', maxZoom: 18
-}).addTo(map);
+L.tileLayer(tileUrl, { attribution: '© OSM © CartoDB', maxZoom: 18 }).addTo(map);
 
 const roleColor = { driver: '#6c8ef7', passenger: '#c084fc' };
-const icons = {};
-['driver','passenger'].forEach(role => {
-  icons[role] = L.divIcon({
-    html: `<div style="width:12px;height:12px;border-radius:50%;background:${roleColor[role]};border:2px solid #fff;box-shadow:0 0 4px ${roleColor[role]}80"></div>`,
-    className: '', iconSize: [12,12], iconAnchor: [6,6]
+function mkIcon(role) {
+  return L.divIcon({
+    html: `<div style="width:12px;height:12px;border-radius:50%;background:${roleColor[role]||'#aaa'};border:2px solid #fff;box-shadow:0 0 4px ${roleColor[role]||'#aaa'}80"></div>`,
+    className: '', iconSize: [12,12], iconAnchor: [6,6],
   });
-});
+}
 
+let tripsData = [];
 fetch('/admin/api/trips/map')
   .then(r => r.json())
   .then(data => {
+    tripsData = data.features;
     data.features.forEach(f => {
       const p = f.properties;
       const [lon, lat] = f.geometry.coordinates;
-      L.marker([lat, lon], { icon: icons[p.role] || icons.driver })
+      L.marker([lat, lon], { icon: mkIcon(p.role) })
         .addTo(map)
         .bindPopup(`
           <b>${p.role === 'driver' ? '🚗 Водій' : '🙋 Пасажир'}</b><br>
@@ -85,14 +109,62 @@ fetch('/admin/api/trips/map')
           🏁 ${p.to_addr.split(',')[0]}<br>
           🕒 ${p.time}
           ${p.price ? '<br>💰 '+Math.round(p.price)+' грн' : ''}
+          <br><a href="#" onclick="openTrip(${p.id});return false" style="color:#6c8ef7">Деталі →</a>
         `);
     });
     if (data.features.length) {
       const lats = data.features.map(f => f.geometry.coordinates[1]);
       const lons = data.features.map(f => f.geometry.coordinates[0]);
-      map.fitBounds([[Math.min(...lats)-0.5, Math.min(...lons)-0.5],[Math.max(...lats)+0.5, Math.max(...lons)+0.5]]);
+      map.fitBounds([[Math.min(...lats)-.5,Math.min(...lons)-.5],[Math.max(...lats)+.5,Math.max(...lons)+.5]]);
     }
   })
   .catch(() => {});
+
+/* ── detail modal map ─────────────────────────────────────────────────── */
+let detailMap = null;
+
+function openTrip(id) {
+  const f = tripsData.find(x => x.properties.id === id);
+  if (!f) { new bootstrap.Modal(document.getElementById('tripModal')).show(); return; }
+  const p = f.properties;
+  const [fLon, fLat] = f.geometry.coordinates;
+  const toLat = p.to_lat, toLon = p.to_lon;
+
+  document.getElementById('modalTitle').textContent =
+    `#${id} — ${p.role === 'driver' ? '🚗 Водій' : '🙋 Пасажир'} — ${p.from_addr.split(',')[0]} → ${p.to_addr.split(',')[0]}`;
+
+  document.getElementById('detailInfo').innerHTML = `
+    <div><span style="color:var(--muted)">Користувач</span><br><b>${p.user}</b>${p.username?' @'+p.username:''}</div>
+    <div><span style="color:var(--muted)">Час виїзду</span><br><b>${p.time}</b></div>
+    <div><span style="color:var(--muted)">📍 Звідки</span><br>${p.from_addr}</div>
+    <div><span style="color:var(--muted)">🏁 Куди</span><br>${p.to_addr}</div>
+    ${p.price ? `<div><span style="color:var(--muted)">Ціна</span><br><b>${Math.round(p.price)} грн</b></div>` : ''}
+    ${p.seats ? `<div><span style="color:var(--muted)">Місця</span><br><b>${p.seats}</b></div>` : ''}
+    <div><span style="color:var(--muted)">Статус</span><br><b>${p.status}</b></div>
+  `;
+
+  const modal = new bootstrap.Modal(document.getElementById('tripModal'));
+  modal.show();
+
+  document.getElementById('tripModal').addEventListener('shown.bs.modal', function init() {
+    this.removeEventListener('shown.bs.modal', init);
+
+    if (detailMap) { detailMap.remove(); detailMap = null; }
+    detailMap = L.map('detailMap');
+    L.tileLayer(tileUrl, { attribution: '© OSM © CartoDB', maxZoom: 18 }).addTo(detailMap);
+
+    const fromMarker = L.marker([fLat, fLon]).addTo(detailMap)
+      .bindPopup(`📍 ${p.from_addr}`).openPopup();
+
+    if (toLat && toLon) {
+      L.marker([toLat, toLon]).addTo(detailMap).bindPopup(`🏁 ${p.to_addr}`);
+      L.polyline([[fLat, fLon], [toLat, toLon]], { color: roleColor[p.role]||'#6c8ef7', weight: 3, dashArray: '6 4' }).addTo(detailMap);
+      detailMap.fitBounds([[fLat,fLon],[toLat,toLon]], { padding: [30,30] });
+    } else {
+      detailMap.setView([fLat, fLon], 12);
+    }
+    detailMap.invalidateSize();
+  });
+}
 </script>
 {% endblock %}
