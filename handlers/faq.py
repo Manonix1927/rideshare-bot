@@ -4,11 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from database.models import FAQ
+from services import bot_settings as _s
 
 router = Router()
 
 
-@router.message(F.text == "❓ Часті питання")
+@router.message(F.text.func(lambda t: t == _s.get("btn_faq")))
 async def faq_list(message: Message, session: AsyncSession) -> None:
     result = await session.execute(select(FAQ).order_by(FAQ.order_idx.asc()))
     faqs = result.scalars().all()

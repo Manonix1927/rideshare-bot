@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 
 from database.models import Trip, User
 from keyboards.keyboards import geo_or_text_kb, cancel_kb, main_menu_kb, confirm_address_kb, date_picker_kb, time_picker_kb
+from services import bot_settings as _s
 from services.geo import geocode_address, reverse_geocode, get_city_from_coords
 from services.matching import find_matches_for_trip, create_match
 from services.notifications import notify_new_match
@@ -31,7 +32,7 @@ def _parse_datetime(text: str) -> datetime | None:
     return None
 
 
-@router.message(F.text == "🚗 Я водій")
+@router.message(F.text.func(lambda t: t == _s.get("btn_driver")))
 async def driver_start(message: Message, state: FSMContext, session: AsyncSession) -> None:
     user = await session.get(User, message.from_user.id)
     if user and user.is_blocked:

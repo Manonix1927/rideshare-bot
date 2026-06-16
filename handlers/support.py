@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import SupportTicket
 from keyboards.keyboards import support_type_kb, main_menu_kb, cancel_kb
+from services import bot_settings as _s
 from states.states import SupportStates
 from config import ADMIN_IDS
 
@@ -18,7 +19,7 @@ TYPE_LABELS = {
 }
 
 
-@router.message(F.text == "🛟 Підтримка")
+@router.message(F.text.func(lambda t: t == _s.get("btn_support")))
 async def support_menu(message: Message) -> None:
     await message.answer(
         "🛟 <b>Підтримка</b>\n\nОберіть тип звернення:",

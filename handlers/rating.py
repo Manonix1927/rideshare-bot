@@ -4,11 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from database.models import User, Trip
+from services import bot_settings as _s
 
 router = Router()
 
 
-@router.message(F.text == "⭐ Мій рейтинг")
+@router.message(F.text.func(lambda t: t == _s.get("btn_rating")))
 async def my_rating(message: Message, session: AsyncSession) -> None:
     user = await session.get(User, message.from_user.id)
     if not user:

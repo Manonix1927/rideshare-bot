@@ -41,17 +41,17 @@ def time_picker_kb(date_iso: str) -> InlineKeyboardMarkup:
 def main_menu_kb() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.row(
-        KeyboardButton(text="🚗 Я водій"),
-        KeyboardButton(text="🙋 Я пасажир"),
+        KeyboardButton(text=_s.get("btn_driver")),
+        KeyboardButton(text=_s.get("btn_passenger")),
     )
     builder.row(
-        KeyboardButton(text="🔍 Поїздки поруч"),
-        KeyboardButton(text="📋 Мої поїздки"),
+        KeyboardButton(text=_s.get("btn_search")),
+        KeyboardButton(text=_s.get("btn_mytrips")),
     )
     builder.row(
-        KeyboardButton(text="⭐ Мій рейтинг"),
-        KeyboardButton(text="🛟 Підтримка"),
-        KeyboardButton(text="❓ Часті питання"),
+        KeyboardButton(text=_s.get("btn_rating")),
+        KeyboardButton(text=_s.get("btn_support")),
+        KeyboardButton(text=_s.get("btn_faq")),
     )
     return builder.as_markup(resize_keyboard=True)
 

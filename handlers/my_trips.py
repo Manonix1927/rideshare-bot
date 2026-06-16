@@ -18,6 +18,7 @@ from keyboards.keyboards import (
     main_menu_kb,
 )
 from services.geo import geocode_address, reverse_geocode
+from services import bot_settings as _s
 from states.states import EditTripStates
 from config import WEBAPP_URL
 
@@ -53,7 +54,7 @@ def _trip_card(trip: Trip, show_id: bool = True) -> str:
     )
 
 
-@router.message(F.text == "📋 Мої поїздки")
+@router.message(F.text.func(lambda t: t == _s.get("btn_mytrips")))
 async def my_trips(message: Message, session: AsyncSession) -> None:
     result = await session.execute(
         select(Trip)

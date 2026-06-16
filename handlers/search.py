@@ -14,6 +14,7 @@ from database.models import Trip
 from keyboards.keyboards import geo_or_text_kb, main_menu_kb
 from services.geo import geocode_address, reverse_geocode, haversine_km
 from services.rich_cards import send_trip_card
+from services import bot_settings as _s
 from states.states import SearchStates
 from config import WEBAPP_URL
 
@@ -121,7 +122,7 @@ def _role_filter_kb(lat: float, lon: float, driver_n: int, passenger_n: int):
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
-@router.message(F.text == "🔍 Поїздки поруч")
+@router.message(F.text.func(lambda t: t == _s.get("btn_search")))
 async def search_start(message: Message, state: FSMContext) -> None:
     await state.set_state(SearchStates.waiting_location)
     await message.answer(
