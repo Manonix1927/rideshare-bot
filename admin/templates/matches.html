@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Матчі{% endblock %}
+{% block content %}
+<div class="page-title">🤝 Матчі</div>
+
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  {% for s, label in [('CONFIRMED','Підтверджені'), ('CANCELLED','Скасовані'), ('CLOSED','Закриті'), ('PENDING','Очікують'), ('ALL','Всі')] %}
+  <a href="/admin/matches?status={{ s }}"
+     class="btn btn-sm {% if status_filter == s %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+    {{ label }}
+  </a>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <div class="card-header">Знайдено: {{ matches|length }}</div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Водій</th>
+          <th>Пасажир</th>
+          <th>Маршрут</th>
+          <th>Час</th>
+          <th>Статус</th>
+          <th>Скасував</th>
+          <th>Причина</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in matches %}
+        <tr>
+          <td style="color:#6b7280">#{{ m.id }}</td>
+          <td>
+            {% set du = m.driver_trip.user %}
+            {% if du %}
+              <span style="font-weight:500">{{ du.first_name }}</span>
+              {% if du.username %}<br><span style="color:#6b7280;font-size:11px">@{{ du.username }}</span>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% set pu = m.passenger_trip.user %}
+            {% if pu %}
+              <span style="font-weight:500">{{ pu.first_name }}</span>
+              {% if pu.username %}<br><span style="color:#6b7280;font-size:11px">@{{ pu.username }}</span>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td style="max-width:180px">
+            <div style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              📍 {{ m.driver_trip.from_address.split(',')[0] }}
+            </div>
+            <div style="font-size:12px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              🏁 {{ m.driver_trip.to_address.split(',')[0] }}
+            </div>
+          </td>
+          <td style="color:#9ca3af;font-size:12px;white-space:nowrap">
+            {{ m.driver_trip.departure_time.strftime('%d.%m %H:%M') }}
+          </td>
+          <td>
+            <span class="badge badge-{{ m.status|lower }} px-2 py-1" style="border-radius:5px;font-size:11px">
+              {{ m.status }}
+            </span>
+          </td>
+          <td style="font-size:12px;color:#6b7280">
+            {% if m.cancelled_by %}
+              {{ '🚗 Водій' if m.cancelled_by == 'driver' else '🙋 Пасажир' }}
+            {% else %}—{% endif %}
+          </td>
+          <td style="font-size:12px;color:#9ca3af;max-width:150px">
+            {{ m.cancel_reason or '—' }}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" style="text-align:center;color:#6b7280;padding:24px">Матчів не знайдено</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

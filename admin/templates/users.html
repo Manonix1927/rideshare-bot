@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Користувачі{% endblock %}
+{% block content %}
+<div class="page-title">👥 Користувачі</div>
+
+<div class="card mb-3">
+  <div style="padding:12px 16px">
+    <form method="get" class="d-flex gap-2 flex-wrap">
+      <input type="text" name="q" value="{{ search }}" class="form-control" style="max-width:220px" placeholder="Пошук за ім'ям, @username, ID...">
+      <select name="blocked" class="form-select" style="max-width:150px">
+        <option value="" {% if not blocked %}selected{% endif %}>Всі</option>
+        <option value="0" {% if blocked == '0' %}selected{% endif %}>Активні</option>
+        <option value="1" {% if blocked == '1' %}selected{% endif %}>Заблоковані</option>
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm px-3">Фільтр</button>
+      <a href="/admin/users" class="btn btn-outline-secondary btn-sm px-3">Скинути</a>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">Знайдено: {{ users|length }}</div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr><th>ID</th><th>Ім'я</th><th>Username</th><th>Рейтинг</th><th>Поїздок</th><th>Успішних</th><th>Зареєстрований</th><th>Статус</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr {% if u.is_blocked %}style="opacity:0.5"{% endif %}>
+          <td style="color:#6b7280;font-family:monospace">{{ u.id }}</td>
+          <td style="font-weight:500">{{ u.first_name or '—' }}</td>
+          <td style="color:#6b7280">{% if u.username %}@{{ u.username }}{% else %}—{% endif %}</td>
+          <td>
+            <span style="color:#fbbf24">⭐</span>
+            <span style="font-weight:600">{{ '%.1f'|format(u.rating) }}</span>
+          </td>
+          <td>{{ u.trips_count }}</td>
+          <td style="color:#4ade80">{{ u.successful_trips }}</td>
+          <td style="color:#6b7280;font-size:12px;white-space:nowrap">{{ u.created_at.strftime('%d.%m.%Y') }}</td>
+          <td>
+            {% if u.is_blocked %}
+            <span class="badge badge-cancelled px-2 py-1" style="border-radius:5px;font-size:11px">🚫 Заблоковано</span>
+            {% else %}
+            <span class="badge badge-active px-2 py-1" style="border-radius:5px;font-size:11px">✅ Активний</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if u.is_blocked %}
+            <form method="post" action="/admin/users/{{ u.id }}/unblock" style="display:inline">
+              <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2" style="font-size:11px">Розблокувати</button>
+            </form>
+            {% else %}
+            <form method="post" action="/admin/users/{{ u.id }}/block" style="display:inline"
+                  onsubmit="return confirm('Заблокувати користувача {{ u.first_name }}?')">
+              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size:11px">Блок</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" style="text-align:center;color:#6b7280;padding:24px">Користувачів не знайдено</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

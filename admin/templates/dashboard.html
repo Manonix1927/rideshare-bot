@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="page-title">📊 Dashboard</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-val">{{ users_total }}</div>
+      <div class="stat-lbl">Всього користувачів</div>
+      {% if users_blocked %}<div style="font-size:11px;color:#f87171;margin-top:4px">{{ users_blocked }} заблоковано</div>{% endif %}
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-val" style="color:#4ade80">{{ trips_active }}</div>
+      <div class="stat-lbl">Активних поїздок</div>
+      <div style="font-size:11px;color:#6c8ef7;margin-top:4px">{{ trips_confirmed }} підтверджених</div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-val" style="color:#6c8ef7">{{ match_confirmed }}</div>
+      <div class="stat-lbl">Підтверджених матчів</div>
+      <div style="font-size:11px;color:#f87171;margin-top:4px">{{ match_cancelled }} скасовано</div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-val" style="color:{% if unread_tickets > 0 %}#fbbf24{% else %}#4ade80{% endif %}">{{ unread_tickets }}</div>
+      <div class="stat-lbl">Нових звернень</div>
+      <div style="font-size:11px;color:#6b7280;margin-top:4px">
+        <a href="/admin/tickets" style="color:#6c8ef7;text-decoration:none">Переглянути →</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-xl-7">
+    <div class="card">
+      <div class="card-header">🚗 Останні активні поїздки</div>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>ID</th><th>Роль</th><th>Звідки → Куди</th><th>Час</th><th>Статус</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in recent_trips %}
+            <tr>
+              <td style="color:#6b7280">#{{ t.id }}</td>
+              <td>
+                <span class="badge badge-{{ t.role }} px-2 py-1" style="border-radius:5px;font-size:11px">
+                  {{ '🚗 Водій' if t.role == 'driver' else '🙋 Пасажир' }}
+                </span>
+              </td>
+              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                {{ t.from_address.split(',')[0] }} → {{ t.to_address.split(',')[0] }}
+              </td>
+              <td style="color:#9ca3af;white-space:nowrap">{{ t.departure_time.strftime('%d.%m %H:%M') }}</td>
+              <td>
+                <span class="badge badge-{{ t.status|lower }} px-2 py-1" style="border-radius:5px;font-size:11px">{{ t.status }}</span>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" style="color:#6b7280;text-align:center;padding:20px">Немає активних поїздок</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="padding:10px 16px;border-top:1px solid #252836">
+        <a href="/admin/trips" style="font-size:12px;color:#6c8ef7;text-decoration:none">Всі поїздки →</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-5">
+    <div class="card h-100">
+      <div class="card-header">📈 Статистика матчів</div>
+      <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#9ca3af">✅ Підтверджені</span>
+          <span style="font-weight:600;color:#6c8ef7">{{ match_confirmed }}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#9ca3af">❌ Скасовані</span>
+          <span style="font-weight:600;color:#f87171">{{ match_cancelled }}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#9ca3af">🏁 Закриті</span>
+          <span style="font-weight:600;color:#6b7280">{{ match_closed }}</span>
+        </div>
+        <hr style="border-color:#252836;margin:4px 0">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#9ca3af">Поїздок завершено</span>
+          <span style="font-weight:600;color:#4ade80">{{ trips_closed }}</span>
+        </div>
+        <div style="margin-top:8px">
+          <a href="/admin/matches" class="btn btn-primary btn-sm w-100">Переглянути матчі</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

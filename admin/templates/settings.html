@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Налаштування{% endblock %}
+{% block content %}
+<div class="page-title">⚙️ Налаштування бота</div>
+
+<form method="post" action="/admin/settings">
+  <!-- Buttons section -->
+  <div class="card mb-3">
+    <div class="card-header">🎛 Кнопки головного меню</div>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+      {% for s in settings if s.key.startswith('btn_') and s.key in ['btn_driver','btn_passenger','btn_search','btn_mytrips','btn_rating','btn_support','btn_faq'] %}
+      <div class="row align-items-center g-2">
+        <div class="col-4">
+          <label class="form-label mb-0" style="font-size:11px;color:#9ca3af;text-transform:uppercase">{{ s.key }}</label>
+        </div>
+        <div class="col-8">
+          <input type="text" name="{{ s.key }}" class="form-control form-control-sm" value="{{ s.value }}" placeholder="{{ s.default }}">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Match buttons -->
+  <div class="card mb-3">
+    <div class="card-header">🤝 Кнопки підтвердження матчу</div>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+      {% for s in settings if s.key in ['btn_confirm','btn_reject'] %}
+      <div class="row align-items-center g-2">
+        <div class="col-4">
+          <label class="form-label mb-0" style="font-size:11px;color:#9ca3af;text-transform:uppercase">{{ s.key }}</label>
+        </div>
+        <div class="col-8">
+          <input type="text" name="{{ s.key }}" class="form-control form-control-sm" value="{{ s.value }}" placeholder="{{ s.default }}">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Pre-departure buttons -->
+  <div class="card mb-3">
+    <div class="card-header">🚀 Кнопки передпоїздки</div>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+      {% for s in settings if s.key.startswith('btn_') and s.key not in ['btn_driver','btn_passenger','btn_search','btn_mytrips','btn_rating','btn_support','btn_faq','btn_confirm','btn_reject'] %}
+      <div class="row align-items-center g-2">
+        <div class="col-4">
+          <label class="form-label mb-0" style="font-size:11px;color:#9ca3af;text-transform:uppercase">{{ s.key }}</label>
+        </div>
+        <div class="col-8">
+          <input type="text" name="{{ s.key }}" class="form-control form-control-sm" value="{{ s.value }}" placeholder="{{ s.default }}">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Messages -->
+  <div class="card mb-3">
+    <div class="card-header">💬 Тексти повідомлень</div>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+      {% for s in settings if s.key.startswith('msg_') %}
+      <div>
+        <label class="form-label mb-1" style="font-size:11px;color:#9ca3af;text-transform:uppercase">{{ s.key }}</label>
+        <textarea name="{{ s.key }}" class="form-control form-control-sm" rows="2" placeholder="{{ s.default }}">{{ s.value }}</textarea>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary px-4">💾 Зберегти всі зміни</button>
+    <a href="/admin/settings" class="btn btn-outline-secondary">Скинути</a>
+  </div>
+</form>
+
+<div class="card mt-3" style="border-color:#3a1e1e">
+  <div class="card-header" style="color:#f87171;border-color:#3a1e1e">⚠️ Важливо</div>
+  <div style="padding:14px 16px;font-size:13px;color:#9ca3af;line-height:1.6">
+    Зміни тут зберігаються в базі даних (<code style="color:#6c8ef7">bot_settings</code>), але поки що бот використовує
+    хардкодні рядки з <code style="color:#6c8ef7">keyboards.py</code>.
+    Щоб зміни почали діяти — інтегруйте сервіс <code style="color:#6c8ef7">BotSettingsService</code> у хендлери.
+    <br><br>
+    Візуально редагувати тексти зручніше через вкладку <a href="/admin/workflow" style="color:#6c8ef7">🔗 Воркфлоу</a>.
+  </div>
+</div>
+{% endblock %}

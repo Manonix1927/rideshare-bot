@@ -113,6 +113,14 @@ class FAQ(Base):
     order_idx = Column(Integer, default=0)
 
 
+class BotSetting(Base):
+    __tablename__ = "bot_settings"
+
+    key = Column(String, primary_key=True)
+    value = Column(Text, nullable=False, default="")
+    description = Column(String, nullable=True)
+
+
 class DriverLocation(Base):
     __tablename__ = "driver_locations"
 

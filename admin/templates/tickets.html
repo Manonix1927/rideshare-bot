@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Звернення{% endblock %}
+{% block content %}
+<div class="page-title">📩 Звернення</div>
+
+{% set type_icons = {'bug': '🐞', 'improvement': '💡', 'feedback': '⭐', 'contact': '📞'} %}
+{% set type_labels = {'bug': 'Проблема', 'improvement': 'Покращення', 'feedback': 'Відгук', 'contact': 'Контакт'} %}
+
+<div class="card">
+  <div class="card-header">Всього: {{ tickets|length }}</div>
+  <div style="display:flex;flex-direction:column;gap:0">
+    {% for t in tickets %}
+    <div style="padding:14px 16px;border-bottom:1px solid #252836;{% if t.is_read %}opacity:0.55{% endif %}">
+      <div class="d-flex align-items-start justify-content-between gap-3">
+        <div style="flex:1;min-width:0">
+          <div class="d-flex align-items-center gap-2 mb-1">
+            <span style="font-size:16px">{{ type_icons.get(t.type, '📩') }}</span>
+            <span style="font-weight:600;font-size:13px;color:#e8eaf0">{{ type_labels.get(t.type, t.type) }}</span>
+            {% if not t.is_read %}
+            <span style="background:#3b5bdb;color:#fff;font-size:10px;padding:1px 6px;border-radius:10px;font-weight:600">НОВЕ</span>
+            {% endif %}
+            <span style="font-size:11px;color:#6b7280;margin-left:auto">{{ t.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
+          </div>
+          <div style="font-size:13px;color:#d1d5db;white-space:pre-wrap;word-break:break-word">{{ t.message }}</div>
+          <div style="margin-top:6px;font-size:12px;color:#6b7280">
+            від
+            <b style="color:#9ca3af">{{ t.user.first_name if t.user else '?' }}</b>
+            {% if t.user and t.user.username %}
+            <a href="https://t.me/{{ t.user.username }}" target="_blank" style="color:#6c8ef7;text-decoration:none">@{{ t.user.username }}</a>
+            {% endif %}
+            (ID: {{ t.user_id }})
+          </div>
+        </div>
+        {% if not t.is_read %}
+        <form method="post" action="/admin/tickets/{{ t.id }}/read" style="flex-shrink:0">
+          <button type="submit" class="btn btn-sm btn-outline-secondary py-1 px-2" style="font-size:11px">
+            ✓ Прочитано
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div style="padding:40px;text-align:center;color:#6b7280">Звернень поки немає 🎉</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

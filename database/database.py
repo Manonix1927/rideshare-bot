@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import DeclarativeBase
 
 from config import DB_PATH, DATABASE_URL
-from database.models import Base, FAQ
+from database.models import Base, FAQ, BotSetting
 
 if DATABASE_URL:
     # Normalize to postgresql+asyncpg:// regardless of what Railway provides

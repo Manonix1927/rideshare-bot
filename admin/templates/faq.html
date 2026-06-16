@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}FAQ{% endblock %}
+{% block content %}
+<div class="page-title">❓ FAQ</div>
+
+<!-- Add form -->
+<div class="card mb-3">
+  <div class="card-header">➕ Додати питання</div>
+  <div style="padding:16px">
+    <form method="post" action="/admin/faq">
+      <div class="row g-3">
+        <div class="col-12 col-md-5">
+          <label class="form-label" style="font-size:11px;color:#9ca3af;text-transform:uppercase">Питання</label>
+          <input type="text" name="question" class="form-control" placeholder="Як це працює?" required>
+        </div>
+        <div class="col-12 col-md-6">
+          <label class="form-label" style="font-size:11px;color:#9ca3af;text-transform:uppercase">Відповідь</label>
+          <textarea name="answer" class="form-control" rows="2" placeholder="Детальна відповідь..." required></textarea>
+        </div>
+        <div class="col-12 col-md-1 d-flex align-items-end">
+          <button type="submit" class="btn btn-primary w-100">Додати</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- FAQ list -->
+<div class="card">
+  <div class="card-header">Питання ({{ faqs|length }})</div>
+  <div style="display:flex;flex-direction:column;gap:0">
+    {% for f in faqs %}
+    <div style="padding:14px 16px;border-bottom:1px solid #252836" id="faq-{{ f.id }}">
+      <div class="d-flex align-items-start gap-3">
+        <div style="flex:1;min-width:0">
+          <!-- View mode -->
+          <div id="view-{{ f.id }}">
+            <div style="font-weight:600;color:#e8eaf0;margin-bottom:4px">{{ f.question }}</div>
+            <div style="font-size:13px;color:#9ca3af;white-space:pre-wrap">{{ f.answer }}</div>
+          </div>
+          <!-- Edit mode (hidden) -->
+          <form method="post" action="/admin/faq/{{ f.id }}/edit" id="form-{{ f.id }}" style="display:none">
+            <div class="mb-2">
+              <input type="text" name="question" class="form-control form-control-sm" value="{{ f.question }}" required>
+            </div>
+            <div class="mb-2">
+              <textarea name="answer" class="form-control form-control-sm" rows="3" required>{{ f.answer }}</textarea>
+            </div>
+            <div class="d-flex gap-2">
+              <button type="submit" class="btn btn-primary btn-sm px-3">Зберегти</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cancelEdit({{ f.id }})">Скасувати</button>
+            </div>
+          </form>
+        </div>
+        <div class="d-flex gap-1 flex-shrink-0" id="btns-{{ f.id }}">
+          <button onclick="startEdit({{ f.id }})" class="btn btn-sm btn-outline-secondary py-1 px-2" style="font-size:11px">✏️ Ред.</button>
+          <form method="post" action="/admin/faq/{{ f.id }}/delete" style="display:inline"
+                onsubmit="return confirm('Видалити це питання?')">
+            <button type="submit" class="btn btn-sm btn-outline-danger py-1 px-2" style="font-size:11px">🗑</button>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div style="padding:40px;text-align:center;color:#6b7280">FAQ поки порожній. Додайте перше питання вище.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function startEdit(id) {
+  document.getElementById('view-'+id).style.display = 'none';
+  document.getElementById('btns-'+id).style.display = 'none';
+  document.getElementById('form-'+id).style.display = 'block';
+}
+function cancelEdit(id) {
+  document.getElementById('view-'+id).style.display = 'block';
+  document.getElementById('btns-'+id).style.display = 'flex';
+  document.getElementById('form-'+id).style.display = 'none';
+}
+</script>
+{% endblock %}

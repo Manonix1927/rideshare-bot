@@ -21,3 +21,5 @@ MATCH_RADIUS_KM: float = 10.0
 MATCH_TIME_DELTA_HOURS: float = 2.0
 MAX_ACTIVE_TRIPS: int = 2
 RATING_DELAY_MINUTES: int = 5
+
+ADMIN_TOKEN: str = os.getenv("ADMIN_TOKEN", "changeme")

@@ -20,6 +20,7 @@ from database.database import init_db, AsyncSessionLocal
 from database.models import DriverLocation, PassengerLocation
 from handlers import start, driver, passenger, announcements, my_trips, rating, support, faq, admin, matching, search, trip_actions
 from services.notifications import auto_close_expired_trips, send_rating_prompts, send_trip_reminders
+from admin.routes import setup_admin
 
 logging.basicConfig(
     level=logging.INFO,
@@ -177,6 +178,7 @@ def build_web_app() -> web.Application:
     app.router.add_post("/location/{match_id}", handle_location_post)
     app.router.add_options("/location/{match_id}", handle_preflight)
     app.router.add_get("/debug", handle_debug)
+    setup_admin(app)
     return app
 
 
