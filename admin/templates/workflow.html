@@ -31,7 +31,7 @@
 <div class="d-flex gap-3" style="align-items:flex-start">
   <!-- Canvas -->
   <div style="flex:1;position:relative;background:#13151f;border-radius:10px;border:1px solid #252836;overflow:auto">
-    <svg id="arrows" style="position:absolute;top:0;left:0;pointer-events:none;min-width:1400px;min-height:740px;width:100%;height:100%">
+    <svg id="arrows" style="position:absolute;top:0;left:0;pointer-events:none;min-width:1460px;min-height:700px;width:100%;height:100%">
       <defs>
         <marker id="arr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
           <path d="M0,0 L0,7 L7,3.5 z" fill="#3b5bdb60"/>
@@ -41,7 +41,7 @@
         </marker>
       </defs>
     </svg>
-    <div id="canvas" style="position:relative;min-width:1400px;min-height:740px;background-image:radial-gradient(circle,#252836 1px,transparent 1px);background-size:24px 24px">
+    <div id="canvas" style="position:relative;min-width:1460px;min-height:700px;background-image:radial-gradient(circle,#252836 1px,transparent 1px);background-size:24px 24px">
       <!-- Legend -->
       <div style="position:absolute;bottom:10px;left:10px;background:#1a1d2790;border:1px solid #252836;border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:5px">
         <div style="font-size:10px;color:#9ca3af;display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:3px;background:#1e2a1e;border:1px solid #2d6a2d"></div>Стан бота</div>
@@ -115,7 +115,7 @@ const NODES = [
     ],
   },
   {
-    id: 'confirmed_d', type: 'wf-action', x: 795, y: 35,
+    id: 'confirmed_d', type: 'wf-action', x: 795, y: 30,
     title: 'ПІДТВЕРДЖЕНО — ВОДІЙ', label: '🚗 Повідомлення водію',
     msgs: [{ key:'msg_confirmed_driver', label:'Текст водію' }],
     buttons: [
@@ -125,7 +125,7 @@ const NODES = [
     ],
   },
   {
-    id: 'confirmed_p', type: 'wf-action', x: 795, y: 305,
+    id: 'confirmed_p', type: 'wf-action', x: 795, y: 310,
     title: 'ПІДТВЕРДЖЕНО — ПАСАЖИР', label: '🙋 Повідомлення пасажиру',
     msgs: [{ key:'msg_confirmed_pax', label:'Текст пасажиру' }],
     buttons: [
@@ -134,13 +134,7 @@ const NODES = [
     ],
   },
   {
-    id: 'reminder', type: 'wf-confirm', x: 795, y: 545,
-    title: '⏰ НАГАДУВАННЯ (10 ХВ)', label: 'За 10 хв до поїздки',
-    msgs: [{ key:'msg_reminder', label:'Текст нагадування' }],
-    buttons: [{ key:'btn_map_rem', label:'🗺 Карта' }],
-  },
-  {
-    id: 'departed', type: 'wf-action', x: 1035, y: 100,
+    id: 'departed', type: 'wf-action', x: 1040, y: 80,
     title: 'ВОДІЙ ВИЇХАВ', label: '🚀 Пасажир сповіщений',
     msgs: [{ key:'msg_departed_pax', label:'Текст пасажиру' }],
     buttons: [
@@ -150,7 +144,13 @@ const NODES = [
     ],
   },
   {
-    id: 'done', type: 'wf-done', x: 1210, y: 240,
+    id: 'reminder', type: 'wf-confirm', x: 1040, y: 420,
+    title: '⏰ НАГАДУВАННЯ (10 ХВ)', label: 'За 10 хв до поїздки',
+    msgs: [{ key:'msg_reminder', label:'Текст нагадування' }],
+    buttons: [{ key:'btn_map_rem', label:'🗺 Карта' }],
+  },
+  {
+    id: 'done', type: 'wf-done', x: 1255, y: 240,
     title: 'ФІНАЛ', label: '🏁 Поїздка завершена',
     msgs: [],
     buttons: [],
@@ -168,9 +168,9 @@ const ARROWS = [
   ['match',       'confirmed_d', 'r', 'l', '#2d6a2d80'],
   ['match',       'confirmed_p', 'r', 'l', '#2d6a2d80'],
   ['confirmed_d', 'departed',    'r', 'l', '#6a2d6a80'],
-  ['departed',    'done',        'r', 'l', '#6a2d6a80'],
   ['confirmed_p', 'departed',    'r', 'l', '#6a2d6a80'],
-  ['reminder',    'confirmed_d', 't', 'b', '#7a6a1a60'],
+  ['departed',    'done',        'r', 'l', '#6a2d6a80'],
+  ['confirmed_d', 'reminder',    'r', 'l', '#7a6a1a60'],
 ];
 
 // Node element lookup (built after render)
