@@ -14,6 +14,7 @@ from keyboards.keyboards import (
     confirm_delete_kb,
     confirmed_trip_contact_kb,
     geo_or_text_kb,
+    dest_kb,
     cancel_kb,
     main_menu_kb,
 )
@@ -291,7 +292,7 @@ async def edit_field_chosen(callback: CallbackQuery, state: FSMContext) -> None:
         "editing_seats": EditTripStates.editing_seats,
     }
     await state.set_state(state_map[new_state_name])
-    kb = geo_or_text_kb() if field in ("from", "to") else cancel_kb()
+    kb = geo_or_text_kb() if field == "from" else dest_kb() if field == "to" else cancel_kb()
     await callback.message.answer(prompt, reply_markup=kb)
     await callback.answer()
 

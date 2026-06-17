@@ -70,6 +70,18 @@ def geo_or_text_kb() -> ReplyKeyboardMarkup:
     return builder.as_markup(resize_keyboard=True)
 
 
+def dest_kb() -> ReplyKeyboardMarkup:
+    """Клавіатура для введення пункту призначення — без геолокації (поточне місце ≠ куди їдемо)."""
+    builder = ReplyKeyboardBuilder()
+    if WEBAPP_URL:
+        builder.row(KeyboardButton(
+            text="🗺 Обрати місце на карті",
+            web_app=WebAppInfo(url=f"{WEBAPP_URL}/?mode=pick"),
+        ))
+    builder.row(KeyboardButton(text="🔙 Головне меню"))
+    return builder.as_markup(resize_keyboard=True)
+
+
 def cancel_kb() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text="🔙 Головне меню"))

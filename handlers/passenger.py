@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from database.models import Trip, User
-from keyboards.keyboards import geo_or_text_kb, cancel_kb, main_menu_kb, confirm_address_kb, date_picker_kb, time_picker_kb, passengers_count_kb
+from keyboards.keyboards import geo_or_text_kb, dest_kb, cancel_kb, main_menu_kb, confirm_address_kb, date_picker_kb, time_picker_kb, passengers_count_kb
 from services.geo import geocode_address, reverse_geocode, get_city_from_coords
 from services.matching import find_matches_for_trip, create_match
 from services.notifications import notify_new_match
@@ -72,7 +72,7 @@ async def passenger_from_location(message: Message, state: FSMContext) -> None:
     await message.answer(
         f"✅ Відправлення: {address}\n\n🙋 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
         parse_mode="HTML",
-        reply_markup=geo_or_text_kb(),
+        reply_markup=dest_kb(),
     )
 
 
@@ -95,7 +95,7 @@ async def passenger_from_text(message: Message, state: FSMContext) -> None:
     await message.answer(
         f"✅ Відправлення: {address}\n\n🙋 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
         parse_mode="HTML",
-        reply_markup=geo_or_text_kb(),
+        reply_markup=dest_kb(),
     )
 
 
@@ -115,7 +115,7 @@ async def passenger_from_webapp(message: Message, state: FSMContext) -> None:
     await message.answer(
         f"✅ Відправлення: {address}\n\n🙋 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
         parse_mode="HTML",
-        reply_markup=geo_or_text_kb(),
+        reply_markup=dest_kb(),
     )
 
 
