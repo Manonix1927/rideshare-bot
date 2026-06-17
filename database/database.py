@@ -22,11 +22,13 @@ async def _run_migrations() -> None:
 
     # ── New columns ────────────────────────────────────────────────────────────
     new_cols = [
-        ("matches", "reminder_sent",    "BOOLEAN DEFAULT FALSE"),
-        ("matches", "driver_departed",  "BOOLEAN DEFAULT FALSE"),
-        ("matches", "passenger_ready",  "BOOLEAN DEFAULT FALSE"),
-        ("matches", "cancelled_by",     "VARCHAR"),
-        ("matches", "cancel_reason",    "VARCHAR"),
+        ("matches", "reminder_sent",              "BOOLEAN DEFAULT FALSE"),
+        ("matches", "driver_departed",            "BOOLEAN DEFAULT FALSE"),
+        ("matches", "passenger_ready",            "BOOLEAN DEFAULT FALSE"),
+        ("matches", "cancelled_by",               "VARCHAR"),
+        ("matches", "cancel_reason",              "VARCHAR"),
+        ("matches", "pending_reminder_1_sent",    "BOOLEAN DEFAULT FALSE"),
+        ("matches", "pending_reminder_2_sent",    "BOOLEAN DEFAULT FALSE"),
     ]
     for table, col, col_type in new_cols:
         sql = (

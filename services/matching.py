@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta
 from typing import Optional
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -55,6 +55,20 @@ async def find_matches_for_trip(
             logger.info("  Skip #%d: routes not compatible", candidate.id)
             continue
 
+        # Seats check: driver must have enough seats for the passenger group
+        if trip.role == "driver":
+            driver_seats = trip.seats or 1
+            pax_count    = candidate.seats or 1
+        else:
+            driver_seats = candidate.seats or 1
+            pax_count    = trip.seats or 1
+        if driver_seats < pax_count:
+            logger.info(
+                "  Skip #%d: not enough seats (%d seats, %d passengers)",
+                candidate.id, driver_seats, pax_count,
+            )
+            continue
+
         logger.info("  MATCH found: trip #%d ↔ candidate #%d", trip.id, candidate.id)
         matches.append(candidate)
 
@@ -103,13 +117,38 @@ async def confirm_match_side(
 
     if match.driver_confirmed and match.passenger_confirmed:
         match.status = "CONFIRMED"
-        # Load trips to update status
         driver_trip = await session.get(Trip, match.driver_trip_id)
         passenger_trip = await session.get(Trip, match.passenger_trip_id)
         if driver_trip:
             driver_trip.status = "CONFIRMED"
         if passenger_trip:
             passenger_trip.status = "CONFIRMED"
+
+        # Cancel every other PENDING match that shares either confirmed trip
+        # so the same driver/passenger can't end up in two confirmed rides
+        other = await session.execute(
+            select(Match).where(
+                Match.id != match.id,
+                Match.status == "PENDING",
+                or_(
+                    Match.driver_trip_id == match.driver_trip_id,
+                    Match.passenger_trip_id == match.passenger_trip_id,
+                ),
+            )
+        )
+        for om in other.scalars().all():
+            om.status = "REJECTED"
+            om.rejection_reason = "Учасник підтвердив іншу поїздку"
+            # Return the non-overlapping trip back to ACTIVE search
+            if om.driver_trip_id != match.driver_trip_id:
+                freed = await session.get(Trip, om.driver_trip_id)
+                if freed and freed.status == "MATCHING":
+                    freed.status = "ACTIVE"
+            if om.passenger_trip_id != match.passenger_trip_id:
+                freed = await session.get(Trip, om.passenger_trip_id)
+                if freed and freed.status == "MATCHING":
+                    freed.status = "ACTIVE"
+
         await session.commit()
         return True
 

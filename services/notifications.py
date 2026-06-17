@@ -58,12 +58,15 @@ async def auto_close_expired_trips(bot) -> None:
 
 
 async def send_rating_prompts(bot) -> None:
-    """5 min after departure, ask confirmed match participants whether the meeting happened."""
+    """5 min after departure close confirmed match and ask both sides if meeting happened.
+
+    Uses a simple threshold (departure <= now - 5min) instead of a narrow window so
+    matches are never left in CONFIRMED state forever if the bot was restarted.
+    """
     from keyboards.keyboards import meeting_happened_kb
 
     now = _now()
-    window_start = now - timedelta(minutes=10)
-    window_end   = now - timedelta(minutes=5)
+    threshold = now - timedelta(minutes=5)
 
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -79,12 +82,19 @@ async def send_rating_prompts(bot) -> None:
         for match in matches:
             driver_trip = match.driver_trip
             departure   = driver_trip.departure_time
-            if not (window_start <= departure <= window_end):
-                continue
+            if departure > threshold:
+                continue  # departure hasn't passed the 5-min threshold yet
 
             match.status = "CLOSED"
             driver_trip.status = "CLOSED"
             match.passenger_trip.status = "CLOSED"
+
+            # Update trip counts for both participants
+            for uid in (driver_trip.user_id, match.passenger_trip.user_id):
+                u = await session.get(User, uid)
+                if u:
+                    u.trips_count += 1
+                    u.successful_trips += 1
 
             driver_user    = driver_trip.user
             passenger_user = match.passenger_trip.user
@@ -172,6 +182,136 @@ async def send_trip_reminders(bot) -> None:
                 pass
 
         await session.commit()
+
+
+async def check_pending_match_timeouts(bot) -> None:
+    """Every minute: remind and eventually auto-cancel PENDING matches that are ignored.
+
+    Rules:
+    - Trip within 1 hour: warn at +5 min ("5 хв до закриття"), cancel at +10 min.
+    - Trip > 1 hour away: remind at +10 min, final warn at +20 min ("скасуємо через 10 хв"),
+      cancel at +30 min.
+    """
+    from datetime import datetime as _dt_utc
+    from keyboards.keyboards import trip_offer_response_kb
+
+    now_utc  = _dt_utc.utcnow()   # for created_at comparison (stored as UTC)
+    now_kyiv = _now()              # for departure_time comparison (stored as Kyiv time)
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Match)
+            .options(
+                selectinload(Match.driver_trip),
+                selectinload(Match.passenger_trip),
+            )
+            .where(Match.status == "PENDING")
+        )
+        matches = result.scalars().all()
+
+        to_cancel: list[Match] = []
+
+        for match in matches:
+            departure     = match.driver_trip.departure_time
+            age_min       = (now_utc - match.created_at).total_seconds() / 60
+            until_dep_sec = (departure - now_kyiv).total_seconds()
+
+            # Already past departure — cancel immediately
+            if until_dep_sec < 0:
+                to_cancel.append(match)
+                continue
+
+            soon = until_dep_sec < 3600  # within 1 hour
+
+            if soon:
+                if age_min >= 10:
+                    to_cancel.append(match)
+                elif age_min >= 5 and not match.pending_reminder_1_sent:
+                    match.pending_reminder_1_sent = True
+                    await _send_pending_reminder(
+                        match, bot, trip_offer_response_kb,
+                        warning=True, cancel_in_min=5,
+                    )
+            else:
+                if age_min >= 30 and match.pending_reminder_2_sent:
+                    to_cancel.append(match)
+                elif age_min >= 20 and match.pending_reminder_1_sent and not match.pending_reminder_2_sent:
+                    match.pending_reminder_2_sent = True
+                    await _send_pending_reminder(
+                        match, bot, trip_offer_response_kb,
+                        warning=True, cancel_in_min=10,
+                    )
+                elif age_min >= 10 and not match.pending_reminder_1_sent:
+                    match.pending_reminder_1_sent = True
+                    await _send_pending_reminder(
+                        match, bot, trip_offer_response_kb,
+                        warning=False, cancel_in_min=10,
+                    )
+
+        for match in to_cancel:
+            match.status = "REJECTED"
+            match.rejection_reason = "Автоматичне скасування — не підтверджено вчасно"
+            d_trip = await session.get(Trip, match.driver_trip_id)
+            p_trip = await session.get(Trip, match.passenger_trip_id)
+            if d_trip and d_trip.status == "MATCHING":
+                d_trip.status = "ACTIVE"
+            if p_trip and p_trip.status == "MATCHING":
+                p_trip.status = "ACTIVE"
+            await _notify_timeout_cancel(match, bot)
+
+        await session.commit()
+
+
+async def _send_pending_reminder(match: Match, bot, kb_fn, warning: bool, cancel_in_min: int) -> None:
+    if warning:
+        text = (
+            f"⚠️ Пропозиція поїздки досі чекає вашої відповіді.\n\n"
+            f"Через <b>{cancel_in_min} хв</b> заявку буде автоматично скасовано. "
+            "Підтвердьте або відхиліть."
+        )
+    else:
+        text = (
+            "⏰ Нагадування: є пропозиція поїздки, яка очікує вашої відповіді.\n\n"
+            f"Якщо не відповісти протягом {cancel_in_min} хв — надійде останнє попередження."
+        )
+
+    kb = kb_fn(match.id)
+    targets = []
+    if not match.driver_confirmed:
+        targets.append(match.driver_trip.user_id)
+    if not match.passenger_confirmed:
+        targets.append(match.passenger_trip.user_id)
+
+    for user_id in targets:
+        try:
+            await bot.send_message(user_id, text, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            pass
+
+
+async def _notify_timeout_cancel(match: Match, bot) -> None:
+    driver_uid    = match.driver_trip.user_id
+    passenger_uid = match.passenger_trip.user_id
+
+    if match.driver_confirmed and not match.passenger_confirmed:
+        msgs = {
+            driver_uid:    "❌ Пасажир не підтвердив поїздку вчасно. Заявку скасовано — пошук продовжується.",
+            passenger_uid: "❌ Заявку скасовано через відсутність вашого підтвердження. Пошук продовжується.",
+        }
+    elif match.passenger_confirmed and not match.driver_confirmed:
+        msgs = {
+            passenger_uid: "❌ Водій не підтвердив поїздку вчасно. Заявку скасовано — пошук продовжується.",
+            driver_uid:    "❌ Заявку скасовано через відсутність вашого підтвердження. Пошук продовжується.",
+        }
+    else:
+        msg = "❌ Заявку скасовано — жодна зі сторін не підтвердила вчасно. Пошук продовжується."
+        msgs = {driver_uid: msg, passenger_uid: msg}
+
+    for uid, text in msgs.items():
+        try:
+            await bot.send_message(uid, text)
+        except Exception:
+            pass
 
 
 async def notify_new_match(bot, trip: Trip, matched_trip: Trip, match: "Match") -> None:

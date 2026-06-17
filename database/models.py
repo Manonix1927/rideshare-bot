@@ -72,6 +72,8 @@ class Match(Base):
     passenger_ready = Column(Boolean, default=False)
     cancelled_by = Column(String, nullable=True)   # "driver" | "passenger"
     cancel_reason = Column(String, nullable=True)
+    pending_reminder_1_sent = Column(Boolean, default=False)
+    pending_reminder_2_sent = Column(Boolean, default=False)
 
     driver_trip = relationship("Trip", foreign_keys=[driver_trip_id], back_populates="driver_matches")
     passenger_trip = relationship("Trip", foreign_keys=[passenger_trip_id], back_populates="passenger_matches")
