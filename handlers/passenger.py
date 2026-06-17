@@ -1,3 +1,4 @@
+import json as _json
 from datetime import datetime, date
 from services.timezone import now as _now, today as _today
 from aiogram import Router, F, Bot
@@ -95,6 +96,45 @@ async def passenger_from_text(message: Message, state: FSMContext) -> None:
         f"✅ Відправлення: {address}\n\n🙋 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
         parse_mode="HTML",
         reply_markup=geo_or_text_kb(),
+    )
+
+
+@router.message(PassengerStates.from_address, F.web_app_data)
+async def passenger_from_webapp(message: Message, state: FSMContext) -> None:
+    try:
+        data = _json.loads(message.web_app_data.data)
+        lat, lon = float(data["lat"]), float(data["lon"])
+        address = data.get("address") or f"{lat:.5f}, {lon:.5f}"
+    except Exception:
+        await message.answer("❌ Помилка отримання даних з карти. Спробуйте ще раз.")
+        return
+
+    city = await get_city_from_coords(lat, lon)
+    await state.update_data(from_lat=lat, from_lon=lon, from_address=address, from_city=city)
+    await state.set_state(PassengerStates.to_address)
+    await message.answer(
+        f"✅ Відправлення: {address}\n\n🙋 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
+        parse_mode="HTML",
+        reply_markup=geo_or_text_kb(),
+    )
+
+
+@router.message(PassengerStates.to_address, F.web_app_data)
+async def passenger_to_webapp(message: Message, state: FSMContext) -> None:
+    try:
+        data = _json.loads(message.web_app_data.data)
+        lat, lon = float(data["lat"]), float(data["lon"])
+        address = data.get("address") or f"{lat:.5f}, {lon:.5f}"
+    except Exception:
+        await message.answer("❌ Помилка отримання даних з карти. Спробуйте ще раз.")
+        return
+
+    await state.update_data(to_lat=lat, to_lon=lon, to_address=address)
+    await state.set_state(PassengerStates.departure_time)
+    await message.answer(
+        f"✅ Призначення: {address}\n\n🙋 <b>Крок 3/5</b>\n\nОберіть бажану дату поїздки:",
+        parse_mode="HTML",
+        reply_markup=date_picker_kb(),
     )
 
 

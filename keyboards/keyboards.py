@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from services import bot_settings as _s
 from services.timezone import today as _today
+from config import WEBAPP_URL
 
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
@@ -60,6 +61,11 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
 def geo_or_text_kb() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text="📍 Надіслати геолокацію", request_location=True))
+    if WEBAPP_URL:
+        builder.row(KeyboardButton(
+            text="🗺 Обрати місце на карті",
+            web_app=WebAppInfo(url=f"{WEBAPP_URL}/?mode=pick"),
+        ))
     builder.row(KeyboardButton(text="🔙 Головне меню"))
     return builder.as_markup(resize_keyboard=True)
 
