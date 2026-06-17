@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text
+    Column, Integer, BigInteger, String, Float, DateTime, Boolean, ForeignKey, Text
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
 from datetime import datetime
@@ -12,7 +12,7 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True)  # Telegram user ID
+    id = Column(BigInteger, primary_key=True)  # Telegram user ID (64-bit)
     username = Column(String, nullable=True)
     first_name = Column(String, nullable=False, default="")
     rating = Column(Float, default=5.0)
@@ -30,7 +30,7 @@ class Trip(Base):
     __tablename__ = "trips"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     role = Column(String, nullable=False)  # "driver" | "passenger"
     from_address = Column(String, nullable=False)
     from_lat = Column(Float, nullable=False)
@@ -83,8 +83,8 @@ class Rating(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     match_id = Column(Integer, ForeignKey("matches.id"), nullable=False)
-    from_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    to_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    from_user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
+    to_user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     score = Column(Integer, nullable=False)  # 1–5
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -95,7 +95,7 @@ class SupportTicket(Base):
     __tablename__ = "support_tickets"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     type = Column(String, nullable=False)  # bug | improvement | feedback | contact
     message = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False)

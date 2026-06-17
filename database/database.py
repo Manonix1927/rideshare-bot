@@ -17,8 +17,10 @@ AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def _run_migrations() -> None:
-    """Safely add new columns to existing tables (idempotent)."""
+    """Safely add new columns / change column types in existing tables (idempotent)."""
     is_pg = "postgresql" in str(engine.url)
+
+    # ── New columns ────────────────────────────────────────────────────────────
     new_cols = [
         ("matches", "reminder_sent",    "BOOLEAN DEFAULT FALSE"),
         ("matches", "driver_departed",  "BOOLEAN DEFAULT FALSE"),
@@ -26,16 +28,44 @@ async def _run_migrations() -> None:
         ("matches", "cancelled_by",     "VARCHAR"),
         ("matches", "cancel_reason",    "VARCHAR"),
     ]
-    async with engine.begin() as conn:
-        for table, col, col_type in new_cols:
-            if is_pg:
-                sql = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"
-            else:
-                sql = f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
+    for table, col, col_type in new_cols:
+        sql = (
+            f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {col_type}"
+            if is_pg else
+            f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
+        )
+        async with engine.begin() as conn:
             try:
                 await conn.execute(text(sql))
             except Exception:
-                pass  # column already exists
+                pass
+
+    # ── Telegram user IDs: INTEGER → BIGINT (IDs can exceed 2^31) ─────────────
+    if is_pg:
+        bigint_steps = [
+            # 1. drop FK constraints that reference users.id
+            "ALTER TABLE trips DROP CONSTRAINT IF EXISTS trips_user_id_fkey",
+            "ALTER TABLE support_tickets DROP CONSTRAINT IF EXISTS support_tickets_user_id_fkey",
+            "ALTER TABLE ratings DROP CONSTRAINT IF EXISTS ratings_from_user_id_fkey",
+            "ALTER TABLE ratings DROP CONSTRAINT IF EXISTS ratings_to_user_id_fkey",
+            # 2. widen the columns
+            "ALTER TABLE users ALTER COLUMN id TYPE BIGINT",
+            "ALTER TABLE trips ALTER COLUMN user_id TYPE BIGINT",
+            "ALTER TABLE support_tickets ALTER COLUMN user_id TYPE BIGINT",
+            "ALTER TABLE ratings ALTER COLUMN from_user_id TYPE BIGINT",
+            "ALTER TABLE ratings ALTER COLUMN to_user_id TYPE BIGINT",
+            # 3. re-add FK constraints
+            "ALTER TABLE trips ADD CONSTRAINT trips_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id)",
+            "ALTER TABLE support_tickets ADD CONSTRAINT support_tickets_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id)",
+            "ALTER TABLE ratings ADD CONSTRAINT ratings_from_user_id_fkey FOREIGN KEY (from_user_id) REFERENCES users(id)",
+            "ALTER TABLE ratings ADD CONSTRAINT ratings_to_user_id_fkey FOREIGN KEY (to_user_id) REFERENCES users(id)",
+        ]
+        for sql in bigint_steps:
+            async with engine.begin() as conn:
+                try:
+                    await conn.execute(text(sql))
+                except Exception:
+                    pass  # already BIGINT / constraint already exists
 
 
 async def init_db() -> None:
