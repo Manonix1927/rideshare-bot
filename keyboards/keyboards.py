@@ -1,6 +1,7 @@
-from datetime import date, timedelta
+from datetime import timedelta
 
 from services import bot_settings as _s
+from services.timezone import today as _today
 
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
@@ -14,7 +15,7 @@ _DAYS_UA = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
 
 def date_picker_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    today = date.today()
+    today = _today()
     for i in range(7):
         d = today + timedelta(days=i)
         if i == 0:

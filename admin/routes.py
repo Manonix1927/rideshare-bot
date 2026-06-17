@@ -6,8 +6,9 @@ Auth: ADMIN_TOKEN env var (cookie-based session).
 import asyncio
 import hashlib
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
+from services.timezone import now as _now
 
 import aiohttp_jinja2
 import jinja2
@@ -673,7 +674,7 @@ async def api_stats_daily(request: web.Request) -> web.Response:
     if not _is_authed(request):
         return web.json_response({"error": "unauthorized"}, status=401)
 
-    now = datetime.utcnow()
+    now = _now()
     since = now - timedelta(days=29)
 
     async with AsyncSessionLocal() as s:

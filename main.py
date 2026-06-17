@@ -5,7 +5,7 @@ import json as _json
 import logging
 import os
 import urllib.parse as _urlparse
-from datetime import datetime
+from services.timezone import now as _now
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -133,7 +133,7 @@ async def handle_location_post(request: web.Request) -> web.Response:
 
         driver_trip = await session.get(Trip, match.driver_trip_id)
         passenger_trip = await session.get(Trip, match.passenger_trip_id)
-        now = datetime.utcnow()
+        now = _now()
 
         if driver_trip.user_id == user_id:
             loc = await session.get(DriverLocation, match_id)

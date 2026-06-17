@@ -1,7 +1,7 @@
 """
 Handles match confirmation/rejection flow and post-trip rating.
 """
-from datetime import datetime
+from services.timezone import now as _now
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,7 +37,7 @@ async def _save_driver_location(user_id: int, lat: float, lon: float, session: A
     if loc:
         loc.lat = lat
         loc.lon = lon
-        loc.updated_at = datetime.utcnow()
+        loc.updated_at = _now()
     else:
         session.add(DriverLocation(match_id=match.id, lat=lat, lon=lon))
     await session.commit()

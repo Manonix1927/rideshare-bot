@@ -4,7 +4,7 @@ Scheduled tasks:
   - Send rating prompt 5 min after departure
 """
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -12,6 +12,7 @@ from database.database import AsyncSessionLocal
 from database.models import Trip, Match, User
 from config import WEBAPP_URL
 from services import bot_settings as _s
+from services.timezone import now as _now
 
 
 def _match_map_url(driver_trip: Trip, passenger_trip: Trip, role: str) -> str:
@@ -42,7 +43,7 @@ def _match_map_url(driver_trip: Trip, passenger_trip: Trip, role: str) -> str:
 
 async def auto_close_expired_trips(bot) -> None:
     """Close all ACTIVE/MATCHING trips whose departure_time has passed."""
-    now = datetime.utcnow()
+    now = _now()
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(Trip).where(
@@ -60,7 +61,7 @@ async def send_rating_prompts(bot) -> None:
     """5 min after departure, ask confirmed match participants whether the meeting happened."""
     from keyboards.keyboards import meeting_happened_kb
 
-    now = datetime.utcnow()
+    now = _now()
     window_start = now - timedelta(minutes=10)
     window_end   = now - timedelta(minutes=5)
 
@@ -109,7 +110,7 @@ async def send_trip_reminders(bot) -> None:
     from keyboards.keyboards import confirmed_trip_driver_kb, confirmed_trip_passenger_kb
     from services.tracking import build_track_url
 
-    now = datetime.utcnow()
+    now = _now()
     window_start = now + timedelta(minutes=9)
     window_end   = now + timedelta(minutes=11)
 

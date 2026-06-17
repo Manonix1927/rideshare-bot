@@ -1,4 +1,5 @@
 from datetime import datetime, date
+from services.timezone import now as _now, today as _today
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -22,10 +23,10 @@ def _parse_datetime(text: str) -> datetime | None:
         try:
             dt = datetime.strptime(text.strip(), fmt)
             if fmt == "%H:%M":
-                now = datetime.now()
-                dt = dt.replace(year=now.year, month=now.month, day=now.day)
+                kyiv = _now()
+                dt = dt.replace(year=kyiv.year, month=kyiv.month, day=kyiv.day)
             elif fmt == "%d.%m %H:%M":
-                dt = dt.replace(year=datetime.now().year)
+                dt = dt.replace(year=_now().year)
             return dt
         except ValueError:
             continue
@@ -174,7 +175,7 @@ async def driver_dt_date(callback: CallbackQuery, state: FSMContext) -> None:
     date_iso = callback.data.split(":", 1)[1]
     await state.update_data(_dt_date=date_iso)
     d = date.fromisoformat(date_iso)
-    label = "сьогодні" if d == date.today() else d.strftime("%d.%m.%Y")
+    label = "сьогодні" if d == _today() else d.strftime("%d.%m.%Y")
     await callback.message.edit_text(
         f"📅 Дата: <b>{label}</b>\n\nОберіть час виїзду:",
         parse_mode="HTML",
@@ -188,7 +189,7 @@ async def driver_dt_time(callback: CallbackQuery, state: FSMContext) -> None:
     parts = callback.data.split(":")  # ["dt_time", "2026-06-15", "14", "00"]
     date_iso, hour, minute = parts[1], parts[2], parts[3]
     dt = datetime.strptime(f"{date_iso} {hour}:{minute}", "%Y-%m-%d %H:%M")
-    if dt < datetime.now():
+    if dt < _now():
         await callback.answer("❌ Цей час вже минув!", show_alert=True)
         return
     await state.update_data(departure_time=dt.isoformat())
@@ -257,7 +258,7 @@ async def driver_time(message: Message, state: FSMContext) -> None:
             )
             return
 
-    if dt < datetime.now():
+    if dt < _now():
         await message.answer("❌ Час поїздки вже минув. Введіть майбутній час.")
         return
 
