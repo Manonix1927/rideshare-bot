@@ -221,6 +221,24 @@ def offer_trip_kb(trip_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def seats_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    labels = ["1 місце", "2 місця", "3 місця", "4 місця"]
+    for i, label in enumerate(labels, 1):
+        builder.button(text=label, callback_data=f"seats:{i}")
+    builder.adjust(4)
+    return builder.as_markup()
+
+
+def passengers_count_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    labels = ["1 пасажир", "2 пасажири", "3 пасажири", "4 пасажири"]
+    for i, label in enumerate(labels, 1):
+        builder.button(text=label, callback_data=f"pax_count:{i}")
+    builder.adjust(4)
+    return builder.as_markup()
+
+
 def map_view_kb(webapp_url: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(

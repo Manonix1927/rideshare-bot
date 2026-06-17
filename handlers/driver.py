@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from database.models import Trip, User
-from keyboards.keyboards import geo_or_text_kb, cancel_kb, main_menu_kb, confirm_address_kb, date_picker_kb, time_picker_kb
+from keyboards.keyboards import geo_or_text_kb, cancel_kb, main_menu_kb, confirm_address_kb, date_picker_kb, time_picker_kb, seats_kb
 from services import bot_settings as _s
 from services.geo import geocode_address, reverse_geocode, get_city_from_coords
 from services.matching import find_matches_for_trip, create_match
@@ -333,8 +333,48 @@ async def driver_price(message: Message, state: FSMContext) -> None:
         f"✅ Вартість: {price:.0f} грн/пасажир\n\n"
         "🚗 <b>Крок 5/5</b>\n\nСкільки вільних місць у вашому авто?",
         parse_mode="HTML",
-        reply_markup=cancel_kb(),
+        reply_markup=seats_kb(),
     )
+
+
+@router.callback_query(F.data.startswith("seats:"), DriverStates.seats)
+async def driver_seats_cb(callback: CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
+    seats = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    dt = datetime.fromisoformat(data["departure_time"])
+
+    trip = Trip(
+        user_id=callback.from_user.id,
+        role="driver",
+        from_address=data["from_address"],
+        from_lat=data["from_lat"],
+        from_lon=data["from_lon"],
+        to_address=data["to_address"],
+        to_lat=data["to_lat"],
+        to_lon=data["to_lon"],
+        departure_time=dt,
+        price=data["price"],
+        seats=seats,
+        status="ACTIVE",
+    )
+    session.add(trip)
+    await session.commit()
+    await session.refresh(trip)
+
+    await state.clear()
+    await callback.message.edit_text(f"✅ Місць: {seats}")
+    await callback.message.answer(
+        "Чудово 👌 Вашу поїздку опубліковано. Якщо з'являться підходящі пасажири — ми одразу повідомимо.",
+        reply_markup=main_menu_kb(),
+    )
+    await callback.answer()
+
+    matches = await find_matches_for_trip(trip, session)
+    for matched_trip in matches:
+        match = await create_match(trip, matched_trip, session)
+        if match:
+            await notify_new_match(bot, trip, matched_trip, match)
+            await notify_new_match(bot, matched_trip, trip, match)
 
 
 @router.message(DriverStates.seats, F.text)
@@ -346,10 +386,10 @@ async def driver_seats(message: Message, state: FSMContext, session: AsyncSessio
 
     try:
         seats = int(message.text.strip())
-        if seats < 1 or seats > 8:
+        if seats < 1 or seats > 4:
             raise ValueError
     except ValueError:
-        await message.answer("❌ Введіть кількість місць від 1 до 8.")
+        await message.answer("❌ Введіть кількість місць від 1 до 4.")
         return
 
     data = await state.get_data()

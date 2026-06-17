@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from database.models import Trip, User
-from keyboards.keyboards import geo_or_text_kb, cancel_kb, main_menu_kb, confirm_address_kb, date_picker_kb, time_picker_kb
+from keyboards.keyboards import geo_or_text_kb, cancel_kb, main_menu_kb, confirm_address_kb, date_picker_kb, time_picker_kb, passengers_count_kb
 from services.geo import geocode_address, reverse_geocode, get_city_from_coords
 from services.matching import find_matches_for_trip, create_match
 from services.notifications import notify_new_match
@@ -332,8 +332,48 @@ async def passenger_budget(message: Message, state: FSMContext) -> None:
         f"✅ Бюджет: до {budget:.0f} грн\n\n"
         "🙋 <b>Крок 5/5</b>\n\nСкільки пасажирів?",
         parse_mode="HTML",
-        reply_markup=cancel_kb(),
+        reply_markup=passengers_count_kb(),
     )
+
+
+@router.callback_query(F.data.startswith("pax_count:"), PassengerStates.passengers_count)
+async def passenger_count_cb(callback: CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
+    count = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    dt = datetime.fromisoformat(data["departure_time"])
+
+    trip = Trip(
+        user_id=callback.from_user.id,
+        role="passenger",
+        from_address=data["from_address"],
+        from_lat=data["from_lat"],
+        from_lon=data["from_lon"],
+        to_address=data["to_address"],
+        to_lat=data["to_lat"],
+        to_lon=data["to_lon"],
+        departure_time=dt,
+        price=data["budget"],
+        seats=count,
+        status="ACTIVE",
+    )
+    session.add(trip)
+    await session.commit()
+    await session.refresh(trip)
+
+    await state.clear()
+    await callback.message.edit_text(f"✅ Пасажирів: {count}")
+    await callback.message.answer(
+        "Чудово 👌 Вашу заявку створено. Ми вже шукаємо для вас підходящі варіанти і повідомимо, як тільки вони з'являться.",
+        reply_markup=main_menu_kb(),
+    )
+    await callback.answer()
+
+    matches = await find_matches_for_trip(trip, session)
+    for matched_trip in matches:
+        match = await create_match(matched_trip, trip, session)
+        if match:
+            await notify_new_match(bot, trip, matched_trip, match)
+            await notify_new_match(bot, matched_trip, trip, match)
 
 
 @router.message(PassengerStates.passengers_count, F.text)
@@ -345,10 +385,10 @@ async def passenger_count(message: Message, state: FSMContext, session: AsyncSes
 
     try:
         count = int(message.text.strip())
-        if count < 1 or count > 8:
+        if count < 1 or count > 4:
             raise ValueError
     except ValueError:
-        await message.answer("❌ Введіть кількість пасажирів від 1 до 8.")
+        await message.answer("❌ Введіть кількість пасажирів від 1 до 4.")
         return
 
     data = await state.get_data()
