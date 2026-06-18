@@ -19,6 +19,7 @@ from keyboards.keyboards import (
     map_only_kb,
     driver_cancel_reasons_kb,
     passenger_cancel_reasons_kb,
+    cancel_reason_skip_kb,
 )
 from services.tracking import build_track_url
 from states.states import CancelTripStates
@@ -217,7 +218,8 @@ async def cancel_reason_chosen(callback: CallbackQuery, session: AsyncSession, b
         await state.set_state(CancelTripStates.typing_reason)
         await state.update_data(match_id=match_id, role=role)
         await callback.message.edit_text(
-            "✍️ Напишіть причину скасування (або надішліть «-» щоб пропустити):"
+            "✍️ Напишіть причину скасування:",
+            reply_markup=cancel_reason_skip_kb(match_id, role),
         )
         await callback.answer()
         return
@@ -225,6 +227,21 @@ async def cancel_reason_chosen(callback: CallbackQuery, session: AsyncSession, b
     reason_map = _DRIVER_REASONS if role == "driver" else _PASSENGER_REASONS
     reason_label = reason_map.get(code, "Інше")
     await _do_cancel(match, role, reason_label, session, bot, callback.message)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("cancel_reason_skip:"))
+async def cancel_reason_skip(callback: CallbackQuery, session: AsyncSession, bot: Bot, state: FSMContext) -> None:
+    await state.clear()
+    parts = callback.data.split(":")
+    match_id, role = int(parts[1]), parts[2]
+    match = await _load_match(match_id, session)
+
+    if not match or match.status != "CONFIRMED":
+        await callback.answer("Поїздка вже недоступна.", show_alert=True)
+        return
+
+    await _do_cancel(match, role, "Інше", session, bot, callback.message)
     await callback.answer()
 
 
@@ -241,8 +258,7 @@ async def cancel_custom_reason(message: Message, session: AsyncSession, bot: Bot
         await message.answer("Поїздка вже недоступна.")
         return
 
-    raw = message.text.strip()
-    reason_label = "Інше" if raw == "-" else f"Інше: {raw}"
+    reason_label = f"Інше: {message.text.strip()}"
     await _do_cancel(match, role, reason_label, session, bot, message)
 
 

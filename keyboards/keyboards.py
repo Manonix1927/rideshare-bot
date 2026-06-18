@@ -354,6 +354,14 @@ def passenger_cancel_reasons_kb(match_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def cancel_reason_skip_kb(match_id: int, role: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(
+        text="Пропустити", callback_data=f"cancel_reason_skip:{match_id}:{role}",
+    ))
+    return builder.as_markup()
+
+
 def admin_main_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats"))
