@@ -5,7 +5,8 @@ Pre-departure trip actions:
   - Both: Відмінити поїздку
 """
 from aiogram import Router, F, Bot
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
+from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -20,6 +21,7 @@ from keyboards.keyboards import (
     passenger_cancel_reasons_kb,
 )
 from services.tracking import build_track_url
+from states.states import CancelTripStates
 
 router = Router()
 
@@ -202,7 +204,7 @@ async def trip_cancel_back(callback: CallbackQuery, session: AsyncSession) -> No
 
 
 @router.callback_query(F.data.startswith("cancel_reason:"))
-async def cancel_reason_chosen(callback: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
+async def cancel_reason_chosen(callback: CallbackQuery, session: AsyncSession, bot: Bot, state: FSMContext) -> None:
     parts = callback.data.split(":")
     match_id, role, code = int(parts[1]), parts[2], parts[3]
     match = await _load_match(match_id, session)
@@ -211,10 +213,40 @@ async def cancel_reason_chosen(callback: CallbackQuery, session: AsyncSession, b
         await callback.answer("Поїздка вже недоступна.", show_alert=True)
         return
 
+    if code == "other":
+        await state.set_state(CancelTripStates.typing_reason)
+        await state.update_data(match_id=match_id, role=role)
+        await callback.message.edit_text(
+            "✍️ Напишіть причину скасування (або надішліть «-» щоб пропустити):"
+        )
+        await callback.answer()
+        return
+
     reason_map = _DRIVER_REASONS if role == "driver" else _PASSENGER_REASONS
     reason_label = reason_map.get(code, "Інше")
+    await _do_cancel(match, role, reason_label, session, bot, callback.message)
+    await callback.answer()
 
-    # Скасовуємо матч, повертаємо поїздки в ACTIVE для повторного пошуку
+
+@router.message(CancelTripStates.typing_reason)
+async def cancel_custom_reason(message: Message, session: AsyncSession, bot: Bot, state: FSMContext) -> None:
+    data = await state.get_data()
+    await state.clear()
+
+    match_id = data.get("match_id")
+    role = data.get("role")
+    match = await _load_match(match_id, session)
+
+    if not match or match.status != "CONFIRMED":
+        await message.answer("Поїздка вже недоступна.")
+        return
+
+    raw = message.text.strip()
+    reason_label = "Інше" if raw == "-" else f"Інше: {raw}"
+    await _do_cancel(match, role, reason_label, session, bot, message)
+
+
+async def _do_cancel(match: Match, role: str, reason_label: str, session: AsyncSession, bot: Bot, reply_target) -> None:
     match.status = "CANCELLED"
     match.cancelled_by = role
     match.cancel_reason = reason_label
@@ -222,7 +254,6 @@ async def cancel_reason_chosen(callback: CallbackQuery, session: AsyncSession, b
     match.passenger_trip.status = "ACTIVE"
     await session.commit()
 
-    # Визначаємо кого сповіщати
     if role == "driver":
         notify_id = match.passenger_trip.user_id
         notify_text = (
@@ -243,10 +274,12 @@ async def cancel_reason_chosen(callback: CallbackQuery, session: AsyncSession, b
     except Exception:
         pass
 
-    await callback.message.edit_text(
+    result_text = (
         f"✅ Поїздку скасовано.\n"
         f"Причина: <i>{reason_label}</i>\n\n"
-        "Ваш пошук відновлено — шукаємо нові варіанти.",
-        parse_mode="HTML",
+        "Ваш пошук відновлено — шукаємо нові варіанти."
     )
-    await callback.answer()
+    if hasattr(reply_target, "edit_text"):
+        await reply_target.edit_text(result_text, parse_mode="HTML")
+    else:
+        await reply_target.answer(result_text, parse_mode="HTML")

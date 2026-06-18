@@ -43,3 +43,7 @@ class AdminStates(StatesGroup):
 
 class SearchStates(StatesGroup):
     waiting_location = State()
+
+
+class CancelTripStates(StatesGroup):
+    typing_reason = State()
