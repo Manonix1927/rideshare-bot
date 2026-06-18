@@ -1,5 +1,6 @@
 import math
 import asyncio
+import re
 from typing import Optional
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
@@ -10,6 +11,61 @@ _geocoder = Nominatim(user_agent=NOMINATIM_UA, timeout=10)
 
 # Viewbox half-size in degrees (~50 km)
 _VIEWBOX_DEG = 0.5
+
+# Approximate center coords for major Ukrainian cities
+_UA_CITIES: dict[str, tuple[float, float]] = {
+    "київ":                 (50.4501, 30.5234),
+    "харків":               (49.9935, 36.2304),
+    "одеса":                (46.4825, 30.7233),
+    "дніпро":               (48.4647, 35.0462),
+    "запоріжжя":            (47.8388, 35.1396),
+    "львів":                (49.8397, 24.0297),
+    "кривий ріг":           (47.9077, 33.3895),
+    "миколаїв":             (46.9750, 31.9946),
+    "херсон":               (46.6354, 32.6169),
+    "полтава":              (49.5883, 34.5514),
+    "чернігів":             (51.4982, 31.2893),
+    "черкаси":              (49.4444, 32.0598),
+    "суми":                 (50.9216, 34.8003),
+    "житомир":              (50.2547, 28.6587),
+    "хмельницький":         (49.4216, 26.9873),
+    "рівне":                (50.6199, 26.2516),
+    "вінниця":              (49.2331, 28.4682),
+    "тернопіль":            (49.5535, 25.5948),
+    "івано-франківськ":     (48.9226, 24.7111),
+    "ужгород":              (48.6238, 22.2966),
+    "луцьк":                (50.7472, 25.3254),
+    "кропивницький":        (48.5079, 32.2623),
+    "маріуполь":            (47.0968, 37.5417),
+    "біла церква":          (49.8057, 30.1108),
+    "краматорськ":          (48.7230, 37.5820),
+    "дрогобич":             (49.3490, 23.5052),
+    "мелітополь":           (46.8497, 35.3650),
+    "ірпінь":               (50.5217, 30.2553),
+    "буча":                 (50.5444, 30.2347),
+}
+
+# Street type prefixes to strip when building a "street only" query
+_STREET_PREFIXES = re.compile(
+    r"^(вул\.?|вулиця|просп\.?|проспект|пров\.?|провулок|пл\.?|площа|бульв\.?|бульвар|шосе|набережна|узвіз)\s+",
+    re.IGNORECASE,
+)
+
+
+def _detect_city(text: str) -> tuple[str | None, tuple[float, float] | None, str]:
+    """
+    Return (city_name, (lat, lon), query_without_city).
+    Checks if any known Ukrainian city name appears in the text.
+    """
+    lower = text.lower()
+    for city, coords in _UA_CITIES.items():
+        # Match as whole word(s)
+        pattern = r"(?<![а-яіїєа-я])" + re.escape(city) + r"(?![а-яіїєа-я])"
+        if re.search(pattern, lower):
+            # Remove the city name (and surrounding punctuation/spaces) from query
+            cleaned = re.sub(r",?\s*" + re.escape(city) + r"\s*,?", "", text, flags=re.IGNORECASE).strip().strip(",").strip()
+            return city, coords, cleaned
+    return None, None, text
 
 
 def _format_address(raw: dict) -> str:
@@ -44,47 +100,89 @@ async def geocode_address(
     """
     Return (lat, lon, display_name) or None.
 
-    If near_lat/near_lon are provided (e.g. the trip's starting point),
-    Nominatim will prefer results inside a ±0.5° box around that point
-    before falling back to a country-wide search.
+    Strategy (in order):
+    1. If user mentioned a known Ukrainian city — structured geocode (street + city).
+    2. Biased free-text search inside viewbox of that city (or near_lat/near_lon).
+    3. Country-wide free-text fallback.
     """
     loop = asyncio.get_event_loop()
 
-    # Build viewbox from context point — geopy expects (lat, lon) pairs
+    city_name, city_coords, street_only = _detect_city(address)
+
+    # Choose viewbox center: explicit city in query wins over from_lat/from_lon
+    if city_coords:
+        vb_lat, vb_lon = city_coords
+    elif near_lat is not None and near_lon is not None:
+        vb_lat, vb_lon = near_lat, near_lon
+    else:
+        vb_lat, vb_lon = None, None
+
     viewbox = None
-    if near_lat is not None and near_lon is not None:
+    if vb_lat is not None:
         viewbox = [
-            (near_lat + _VIEWBOX_DEG, near_lon - _VIEWBOX_DEG),  # NW
-            (near_lat - _VIEWBOX_DEG, near_lon + _VIEWBOX_DEG),  # SE
+            (vb_lat + _VIEWBOX_DEG, vb_lon - _VIEWBOX_DEG),
+            (vb_lat - _VIEWBOX_DEG, vb_lon + _VIEWBOX_DEG),
         ]
 
-    async def _geocode(vb, bounded):
-        kwargs = {"country_codes": "ua", "language": "uk", "addressdetails": True}
+    base_kwargs = {"country_codes": "ua", "language": "uk", "addressdetails": True}
+
+    async def _try(query: str, vb, bounded: bool) -> Optional[object]:
+        kwargs = dict(base_kwargs)
         if vb:
             kwargs["viewbox"] = vb
             kwargs["bounded"] = bounded
         try:
             return await loop.run_in_executor(
-                None, lambda: _geocoder.geocode(address, **kwargs)
+                None, lambda: _geocoder.geocode(query, **kwargs)
             )
         except (GeocoderTimedOut, GeocoderServiceError):
             return None
 
-    # 1) Try biased search inside viewbox (bounded)
-    if viewbox:
-        loc = await _geocode(viewbox, bounded=True)
-        if loc:
-            return loc.latitude, loc.longitude, _format_address(loc.raw)
+    async def _try_structured(street: str, city: str) -> Optional[object]:
+        """Nominatim structured search — much more reliable than free text."""
+        street = _STREET_PREFIXES.sub("", street).strip()
+        query = f"{street}, {city}, Україна"
+        try:
+            return await loop.run_in_executor(
+                None, lambda: _geocoder.geocode(query, **base_kwargs)
+            )
+        except (GeocoderTimedOut, GeocoderServiceError):
+            return None
 
-    # 2) Try biased but not strictly bounded (prefers the area)
-    if viewbox:
-        loc = await _geocode(viewbox, bounded=False)
-        if loc:
-            return loc.latitude, loc.longitude, _format_address(loc.raw)
+    candidates = []
 
-    # 3) Country-wide fallback
-    loc = await _geocode(None, False)
-    if loc:
+    # 1) Structured search if city was detected
+    if city_name and street_only:
+        loc = await _try_structured(street_only, city_name)
+        if loc:
+            candidates.append(loc)
+
+    # 2) Free-text inside viewbox (bounded)
+    if viewbox and not candidates:
+        loc = await _try(address, viewbox, bounded=True)
+        if loc:
+            candidates.append(loc)
+
+    # 3) Free-text biased (not bounded) — viewbox is a hint
+    if viewbox and not candidates:
+        loc = await _try(address, viewbox, bounded=False)
+        if loc:
+            candidates.append(loc)
+
+    # 4) If city detected but street_only search failed — try full query biased toward city
+    if city_coords and not candidates:
+        loc = await _try(address, viewbox, bounded=False)
+        if loc:
+            candidates.append(loc)
+
+    # 5) Country-wide fallback (original query)
+    if not candidates:
+        loc = await _try(address, None, False)
+        if loc:
+            candidates.append(loc)
+
+    if candidates:
+        loc = candidates[0]
         return loc.latitude, loc.longitude, _format_address(loc.raw)
 
     return None

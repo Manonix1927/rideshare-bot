@@ -9,7 +9,7 @@ from sqlalchemy import select, func
 
 from database.models import Trip, User
 from keyboards.keyboards import geo_or_text_kb, dest_kb, cancel_kb, main_menu_kb, confirm_address_kb, date_picker_kb, time_picker_kb, passengers_count_kb
-from services.geo import geocode_address, reverse_geocode, get_city_from_coords
+from services.geo import geocode_address, reverse_geocode, get_city_from_coords, _detect_city
 from services.matching import find_matches_for_trip, create_match
 from services.notifications import notify_new_match
 from services import bot_settings as _s
@@ -164,7 +164,8 @@ async def passenger_to_text(message: Message, state: FSMContext) -> None:
     from_city = data.get("from_city", "")
 
     query = message.text
-    if from_city and from_city.lower() not in query.lower():
+    city_in_query, _, _ = _detect_city(query)
+    if not city_in_query and from_city and from_city.lower() not in query.lower():
         query = f"{query}, {from_city}"
 
     result = await geocode_address(query, near_lat=near_lat, near_lon=near_lon)
