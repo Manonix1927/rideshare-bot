@@ -29,7 +29,6 @@ def _all_trips_menu_kb(drivers: int, passengers: int) -> object:
         InlineKeyboardButton(text=f"🚗 Водії — {drivers}", callback_data="all:driver:0"),
         InlineKeyboardButton(text=f"🙋 Пасажири — {passengers}", callback_data="all:passenger:0"),
     )
-    builder.row(InlineKeyboardButton(text="🔍 Поїздки поруч", callback_data="all:nearby"))
     return builder.as_markup()
 
 
@@ -117,8 +116,9 @@ async def all_trips_page(callback: CallbackQuery, session: AsyncSession) -> None
         nav.button(text="◀️ Назад", callback_data=f"all:{role}:{page - 1}")
     if start + PAGE_SIZE < total:
         nav.button(text="▶️ Далі", callback_data=f"all:{role}:{page + 1}")
-    nav.button(text="↩️ До меню", callback_data="all:back")
     nav.adjust(2)
+    nav.row(InlineKeyboardButton(text="🔍 Поїздки поруч", callback_data="all:nearby"))
+    nav.row(InlineKeyboardButton(text="↩️ До меню", callback_data="all:back"))
 
     await callback.message.answer(
         f"Показано {start + 1}–{min(start + PAGE_SIZE, total)} з {total}",
