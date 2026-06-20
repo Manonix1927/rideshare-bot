@@ -89,13 +89,6 @@ async def send_rating_prompts(bot) -> None:
             driver_trip.status = "CLOSED"
             match.passenger_trip.status = "CLOSED"
 
-            # Update trip counts for both participants
-            for uid in (driver_trip.user_id, match.passenger_trip.user_id):
-                u = await session.get(User, uid)
-                if u:
-                    u.trips_count += 1
-                    u.successful_trips += 1
-
             driver_user    = driver_trip.user
             passenger_user = match.passenger_trip.user
 

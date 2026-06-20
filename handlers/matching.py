@@ -239,11 +239,17 @@ async def contacted_yes(callback: CallbackQuery, session: AsyncSession) -> None:
         else match.driver_trip.user_id
     )
 
-    # Decrement stats for the other user (failure)
+    # Count the trip for current user (not successful — meeting didn't happen)
+    user = await session.get(User, user_id)
+    if user:
+        user.trips_count += 1
+
+    # Mark failed for the other user
     other_user = await session.get(User, other_user_id)
     if other_user:
         other_user.failed_trips += 1
-        await session.commit()
+
+    await session.commit()
 
     await callback.message.edit_text(
         "Оцініть вашого попутника від 1 до 5 зірок:",
@@ -253,7 +259,11 @@ async def contacted_yes(callback: CallbackQuery, session: AsyncSession) -> None:
 
 
 @router.callback_query(F.data.startswith("contacted_no:"))
-async def contacted_no(callback: CallbackQuery) -> None:
+async def contacted_no(callback: CallbackQuery, session: AsyncSession) -> None:
+    user = await session.get(User, callback.from_user.id)
+    if user:
+        user.trips_count += 1
+        await session.commit()
     await callback.message.edit_text("Зрозуміло. Дякуємо за відповідь.")
     await callback.answer()
 
