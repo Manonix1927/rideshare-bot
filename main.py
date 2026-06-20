@@ -193,6 +193,7 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
 
+
     if REDIS_URL:
         storage = RedisStorage.from_url(REDIS_URL)
         logger.info("FSM storage: Redis")
