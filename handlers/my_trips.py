@@ -1,4 +1,5 @@
 from datetime import datetime
+import json as _json
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -309,17 +310,54 @@ async def _apply_edit(state: FSMContext, session: AsyncSession, **kwargs) -> Tri
     return trip
 
 
+async def _notify_match_partner(trip: Trip, text: str, session: AsyncSession, bot: Bot) -> None:
+    """Notify the matched partner (if any MATCHING/CONFIRMED match) about an edit."""
+    result = await session.execute(
+        select(Match).where(
+            Match.status.in_(["MATCHING", "CONFIRMED"]),
+            (Match.driver_trip_id == trip.id) | (Match.passenger_trip_id == trip.id),
+        )
+    )
+    match = result.scalars().first()
+    if not match:
+        return
+    partner_trip_id = match.passenger_trip_id if match.driver_trip_id == trip.id else match.driver_trip_id
+    partner_trip = await session.get(Trip, partner_trip_id)
+    if partner_trip:
+        try:
+            await bot.send_message(partner_trip.user_id, text, parse_mode="HTML")
+        except Exception:
+            pass
+
+
+@router.message(EditTripStates.editing_from, F.web_app_data)
+async def edit_from_webapp(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
+    try:
+        data = _json.loads(message.web_app_data.data)
+        lat, lon, address = float(data["lat"]), float(data["lon"]), data["address"]
+    except Exception:
+        await message.answer("❌ Помилка даних карти.")
+        return
+    trip = await _apply_edit(state, session, from_address=address, from_lat=lat, from_lon=lon)
+    await state.clear()
+    await message.answer(f"✅ Адреса відправлення оновлена: {address}", reply_markup=main_menu_kb())
+    if trip:
+        await _notify_match_partner(trip, f"📍 Попутник змінив адресу відправлення:\n<b>{address}</b>", session, bot)
+
+
 @router.message(EditTripStates.editing_from, F.location)
-async def edit_from_location(message: Message, state: FSMContext, session: AsyncSession) -> None:
+async def edit_from_location(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
     lat, lon = message.location.latitude, message.location.longitude
     address = await reverse_geocode(lat, lon)
     trip = await _apply_edit(state, session, from_address=address, from_lat=lat, from_lon=lon)
     await state.clear()
     await message.answer(f"✅ Адреса відправлення оновлена: {address}", reply_markup=main_menu_kb())
+    if trip:
+        await _notify_match_partner(trip, f"📍 Попутник змінив адресу відправлення:\n<b>{address}</b>", session, bot)
 
 
 @router.message(EditTripStates.editing_from, F.text)
-async def edit_from_text(message: Message, state: FSMContext, session: AsyncSession) -> None:
+async def edit_from_text(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
     if message.text == "🔙 Головне меню":
         await state.clear()
         await message.answer("Головне меню:", reply_markup=main_menu_kb())
@@ -329,22 +367,41 @@ async def edit_from_text(message: Message, state: FSMContext, session: AsyncSess
         await message.answer("❌ Адресу не знайдено. Спробуйте ще раз.")
         return
     lat, lon, address = result
-    await _apply_edit(state, session, from_address=address, from_lat=lat, from_lon=lon)
+    trip = await _apply_edit(state, session, from_address=address, from_lat=lat, from_lon=lon)
     await state.clear()
     await message.answer(f"✅ Адреса відправлення оновлена: {address}", reply_markup=main_menu_kb())
+    if trip:
+        await _notify_match_partner(trip, f"📍 Попутник змінив адресу відправлення:\n<b>{address}</b>", session, bot)
+
+
+@router.message(EditTripStates.editing_to, F.web_app_data)
+async def edit_to_webapp(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
+    try:
+        data = _json.loads(message.web_app_data.data)
+        lat, lon, address = float(data["lat"]), float(data["lon"]), data["address"]
+    except Exception:
+        await message.answer("❌ Помилка даних карти.")
+        return
+    trip = await _apply_edit(state, session, to_address=address, to_lat=lat, to_lon=lon)
+    await state.clear()
+    await message.answer(f"✅ Адреса призначення оновлена: {address}", reply_markup=main_menu_kb())
+    if trip:
+        await _notify_match_partner(trip, f"🏁 Попутник змінив адресу призначення:\n<b>{address}</b>", session, bot)
 
 
 @router.message(EditTripStates.editing_to, F.location)
-async def edit_to_location(message: Message, state: FSMContext, session: AsyncSession) -> None:
+async def edit_to_location(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
     lat, lon = message.location.latitude, message.location.longitude
     address = await reverse_geocode(lat, lon)
-    await _apply_edit(state, session, to_address=address, to_lat=lat, to_lon=lon)
+    trip = await _apply_edit(state, session, to_address=address, to_lat=lat, to_lon=lon)
     await state.clear()
     await message.answer(f"✅ Адреса призначення оновлена: {address}", reply_markup=main_menu_kb())
+    if trip:
+        await _notify_match_partner(trip, f"🏁 Попутник змінив адресу призначення:\n<b>{address}</b>", session, bot)
 
 
 @router.message(EditTripStates.editing_to, F.text)
-async def edit_to_text(message: Message, state: FSMContext, session: AsyncSession) -> None:
+async def edit_to_text(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
     if message.text == "🔙 Головне меню":
         await state.clear()
         await message.answer("Головне меню:", reply_markup=main_menu_kb())
@@ -354,9 +411,11 @@ async def edit_to_text(message: Message, state: FSMContext, session: AsyncSessio
         await message.answer("❌ Адресу не знайдено.")
         return
     lat, lon, address = result
-    await _apply_edit(state, session, to_address=address, to_lat=lat, to_lon=lon)
+    trip = await _apply_edit(state, session, to_address=address, to_lat=lat, to_lon=lon)
     await state.clear()
     await message.answer(f"✅ Адреса призначення оновлена: {address}", reply_markup=main_menu_kb())
+    if trip:
+        await _notify_match_partner(trip, f"🏁 Попутник змінив адресу призначення:\n<b>{address}</b>", session, bot)
 
 
 @router.message(EditTripStates.editing_time, F.text)
@@ -392,18 +451,25 @@ async def edit_price(message: Message, state: FSMContext, session: AsyncSession)
 
 
 @router.message(EditTripStates.editing_seats, F.text)
-async def edit_seats(message: Message, state: FSMContext, session: AsyncSession) -> None:
+async def edit_seats(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
     if message.text == "🔙 Головне меню":
         await state.clear()
         await message.answer("Головне меню:", reply_markup=main_menu_kb())
         return
     try:
         seats = int(message.text.strip())
-        if seats < 1 or seats > 8:
+        if seats < 1 or seats > 4:
             raise ValueError
     except ValueError:
-        await message.answer("❌ Введіть число від 1 до 8.")
+        await message.answer("❌ Введіть число від 1 до 4.")
         return
-    await _apply_edit(state, session, seats=seats)
+    trip = await _apply_edit(state, session, seats=seats)
     await state.clear()
     await message.answer(f"✅ Кількість місць оновлено: {seats}", reply_markup=main_menu_kb())
+    if trip:
+        label = "місць" if trip.role == "driver" else "пасажирів"
+        await _notify_match_partner(
+            trip,
+            f"💺 Попутник змінив кількість {label}: <b>{seats}</b>",
+            session, bot,
+        )
