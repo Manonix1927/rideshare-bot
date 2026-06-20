@@ -26,7 +26,7 @@ def _format_trip_card(trip: Trip, user: User) -> str:
         f"{', '.join(trip.from_address.split(',')[:2]).strip()} → {', '.join(trip.to_address.split(',')[:2]).strip()}\n"
         f"🕒 {trip.departure_time.strftime('%d.%m.%Y %H:%M')} | "
         f"💰 {price_label} | {seats_label}\n"
-        f"⭐ Рейтинг: {user.rating:.1f} | 🔄 У пошуку"
+        f"⭐ Рейтинг: {user.rating:.1f if user.rating is not None else 'Без рейтингу'} | 🔄 У пошуку"
     )
 
 

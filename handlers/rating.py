@@ -20,10 +20,15 @@ async def my_rating(message: Message, session: AsyncSession) -> None:
         select(func.count()).select_from(Trip).where(Trip.user_id == user.id)
     )
 
-    stars = "⭐" * round(user.rating)
+    if user.rating is not None:
+        stars = "⭐" * round(user.rating)
+        rating_line = f"🌟 Ваш рейтинг: <b>{user.rating:.1f} / 5.0</b> {stars}\n"
+    else:
+        rating_line = "🌟 Рейтинг: <b>Без рейтингу</b>\n"
+
     await message.answer(
         f"⭐ <b>Мій рейтинг</b>\n\n"
-        f"🌟 Ваш рейтинг: <b>{user.rating:.1f} / 5.0</b> {stars}\n"
+        f"{rating_line}"
         f"🚗 Поїздок всього: {total or 0}\n"
         f"✅ Успішних: {user.successful_trips}\n"
         f"❌ Неуспішних: {user.failed_trips}",

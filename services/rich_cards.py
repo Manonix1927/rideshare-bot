@@ -19,6 +19,11 @@ def _esc(text: str) -> str:
     return html.escape(str(text))
 
 
+def fmt_rating(rating: float | None) -> str:
+    """Format rating for display: '4.8' or 'Без рейтингу'."""
+    return f"{rating:.1f}" if rating is not None else "Без рейтингу"
+
+
 def trip_card_html(trip: "Trip", user: "User", dist_km: float | None = None) -> str:
     role_emoji = "🚗" if trip.role == "driver" else "🙋"
     role_label = "Водій" if trip.role == "driver" else "Пасажир"
@@ -38,7 +43,7 @@ def trip_card_html(trip: "Trip", user: "User", dist_km: float | None = None) -> 
         f"<tr><th>🕒 Час</th><td>{_esc(trip.departure_time.strftime('%d.%m.%Y %H:%M'))}</td></tr>"
         f"<tr><th>💰 Ціна</th><td>{_esc(price_label)}</td></tr>"
         f"<tr><th>{seats_emoji} Місця</th><td>{_esc(seats_label)}</td></tr>"
-        f"<tr><th>⭐ Рейтинг</th><td>{user.rating:.1f}</td></tr>"
+        f"<tr><th>⭐ Рейтинг</th><td>{_esc(fmt_rating(user.rating))}</td></tr>"
         f"{dist_row}"
         f"</table>"
     )
@@ -54,7 +59,7 @@ def trip_card_plain(trip: "Trip", user: "User", dist_km: float | None = None) ->
     return (
         f"{role_emoji} {from_addr} → {to_addr}\n"
         f"🕒 {trip.departure_time.strftime('%d.%m %H:%M')}  💰 {price_str}  {seats_str}\n"
-        f"⭐ {user.rating:.1f}{dist_part}"
+        f"⭐ {fmt_rating(user.rating)}{dist_part}"
     )
 
 

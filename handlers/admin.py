@@ -39,7 +39,7 @@ async def admin_stats(callback: CallbackQuery, session: AsyncSession) -> None:
     )
 
     ratings_result = await session.execute(select(User.rating))
-    all_ratings = ratings_result.scalars().all()
+    all_ratings = [r for r in ratings_result.scalars().all() if r is not None]
     avg_rating = sum(all_ratings) / len(all_ratings) if all_ratings else 0
 
     await callback.message.answer(
@@ -69,7 +69,7 @@ async def admin_users(callback: CallbackQuery, session: AsyncSession) -> None:
         blocked = "🚫" if u.is_blocked else "✅"
         text += (
             f"{blocked} {u.first_name} (@{u.username or '—'}) "
-            f"[ID: {u.id}] ⭐{u.rating:.1f} | поїздок: {u.trips_count}\n"
+            f"[ID: {u.id}] ⭐{f'{u.rating:.1f}' if u.rating is not None else '—'} | поїздок: {u.trips_count}\n"
         )
 
     from aiogram.utils.keyboard import InlineKeyboardBuilder

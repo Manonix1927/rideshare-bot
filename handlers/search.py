@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 from database.models import Trip
 from keyboards.keyboards import geo_or_text_kb, main_menu_kb
 from services.geo import geocode_address, reverse_geocode, haversine_km
-from services.rich_cards import send_trip_card
+from services.rich_cards import send_trip_card, fmt_rating
 from services import bot_settings as _s
 from states.states import SearchStates
 from config import WEBAPP_URL
@@ -71,11 +71,11 @@ def _trip_card(trip: Trip, dist_km: float) -> str:
     seats_str = (
         f"💺 {trip.seats} місць" if trip.role == "driver" else f"👥 {trip.seats} пас."
     )
-    rating = trip.user.rating if trip.user else 5.0
+    rating = trip.user.rating if trip.user else None
     return (
         f"{role_emoji} {', '.join(trip.from_address.split(',')[:2]).strip()} → {', '.join(trip.to_address.split(',')[:2]).strip()}\n"
         f"🕒 {trip.departure_time.strftime('%d.%m %H:%M')}  💰 {price_str}  {seats_str}\n"
-        f"⭐ {rating:.1f}  📍 {dist_km:.1f} км від вас"
+        f"⭐ {fmt_rating(rating)}  📍 {dist_km:.1f} км від вас"
     )
 
 

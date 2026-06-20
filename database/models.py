@@ -15,7 +15,7 @@ class User(Base):
     id = Column(BigInteger, primary_key=True)  # Telegram user ID (64-bit)
     username = Column(String, nullable=True)
     first_name = Column(String, nullable=False, default="")
-    rating = Column(Float, default=5.0)
+    rating = Column(Float, nullable=True, default=None)
     trips_count = Column(Integer, default=0)
     successful_trips = Column(Integer, default=0)
     failed_trips = Column(Integer, default=0)

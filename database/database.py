@@ -42,6 +42,15 @@ async def _run_migrations() -> None:
             except Exception:
                 pass
 
+    # ── Reset default 5.0 rating for users who have never made a trip ──────────
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(text(
+                "UPDATE users SET rating = NULL WHERE trips_count = 0 AND rating = 5.0"
+            ))
+        except Exception:
+            pass
+
     # ── Telegram user IDs: INTEGER → BIGINT (IDs can exceed 2^31) ─────────────
     if is_pg:
         bigint_steps = [

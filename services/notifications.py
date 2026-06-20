@@ -149,11 +149,11 @@ async def send_trip_reminders(bot) -> None:
             base = reminder_tpl.replace("{route}", f"{from_addr} → {to_addr}").replace("{time}", time_str)
             text = (
                 f"{base}\n\n"
-                f"Попутник: {passenger_user.first_name} ⭐{passenger_user.rating:.1f}"
+                f"Попутник: {passenger_user.first_name} ⭐{passenger_user.rating:.1f if passenger_user.rating is not None else 'н/р'}"
             )
             passenger_text = (
                 f"{base}\n\n"
-                f"Водій: {driver_user.first_name} ⭐{driver_user.rating:.1f}"
+                f"Водій: {driver_user.first_name} ⭐{driver_user.rating:.1f if driver_user.rating is not None else 'н/р'}"
             )
 
             track_url = build_track_url(match, driver_user.id, passenger_user.id)
@@ -330,7 +330,7 @@ async def notify_new_match(bot, trip: Trip, matched_trip: Trip, match: "Match") 
     # Load user for rating
     async with AsyncSessionLocal() as session:
         matched_user = await session.get(User, matched_trip.user_id)
-        rating_str = f"{matched_user.rating:.1f}" if matched_user else "—"
+        rating_str = (f"{matched_user.rating:.1f}" if matched_user and matched_user.rating is not None else "Без рейтингу")
 
     text = (
         f"🎉 Знайдено підходящий варіант!\n\n"
