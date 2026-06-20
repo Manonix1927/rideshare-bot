@@ -47,7 +47,7 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
         KeyboardButton(text=_s.get("btn_passenger")),
     )
     builder.row(
-        KeyboardButton(text=_s.get("btn_search")),
+        KeyboardButton(text=_s.get("btn_all_trips")),
         KeyboardButton(text=_s.get("btn_mytrips")),
     )
     builder.row(

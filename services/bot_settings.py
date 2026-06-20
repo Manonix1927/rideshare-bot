@@ -15,6 +15,7 @@ DEFAULTS: dict[str, str] = {
     "btn_driver":           "🚗 Я водій",
     "btn_passenger":        "🙋 Я пасажир",
     "btn_search":           "🔍 Поїздки поруч",
+    "btn_all_trips":        "🗺 Всі поїздки",
     "btn_mytrips":          "📋 Мої поїздки",
     "btn_rating":           "⭐ Мій рейтинг",
     "btn_support":          "🛟 Підтримка",
