@@ -35,8 +35,12 @@
           <td style="font-weight:500">{{ u.first_name or '—' }}</td>
           <td style="color:#6b7280">{% if u.username %}@{{ u.username }}{% else %}—{% endif %}</td>
           <td>
-            <span style="color:#fbbf24">⭐</span>
-            <span style="font-weight:600">{{ '%.1f'|format(u.rating) }}</span>
+            {% if u.rating is not none %}
+              <span style="color:#fbbf24">⭐</span>
+              <span style="font-weight:600">{{ '%.1f'|format(u.rating) }}</span>
+            {% else %}
+              <span style="color:#6b7280">—</span>
+            {% endif %}
           </td>
           <td>{{ u.trips_count }}</td>
           <td style="color:#4ade80">{{ u.successful_trips }}</td>
