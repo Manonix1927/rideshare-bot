@@ -164,11 +164,11 @@ def rating_kb(match_id: int, to_user_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def my_trips_menu_kb() -> InlineKeyboardMarkup:
+def my_trips_menu_kb(active: int = 0, confirmed: int = 0, closed: int = 0) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🟢 Активні", callback_data="mytrips:active"))
-    builder.row(InlineKeyboardButton(text="✅ Підтверджені", callback_data="mytrips:confirmed"))
-    builder.row(InlineKeyboardButton(text="🏁 Завершені", callback_data="mytrips:closed"))
+    builder.row(InlineKeyboardButton(text=f"🟢 Активні — {active}", callback_data="mytrips:active"))
+    builder.row(InlineKeyboardButton(text=f"✅ Підтверджені — {confirmed}", callback_data="mytrips:confirmed"))
+    builder.row(InlineKeyboardButton(text=f"🏁 Завершені — {closed}", callback_data="mytrips:closed"))
     return builder.as_markup()
 
 

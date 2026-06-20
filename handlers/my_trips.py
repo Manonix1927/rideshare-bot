@@ -61,15 +61,17 @@ async def my_trips(message: Message, session: AsyncSession) -> None:
     result = await session.execute(
         select(Trip)
         .where(Trip.user_id == message.from_user.id)
-        .order_by(Trip.created_at.desc())
     )
     trips = result.scalars().all()
-    count = len(trips)
+
+    active    = sum(1 for t in trips if t.status in ("ACTIVE", "MATCHING"))
+    confirmed = sum(1 for t in trips if t.status == "CONFIRMED")
+    closed    = sum(1 for t in trips if t.status in ("CLOSED", "CANCELLED"))
 
     await message.answer(
-        f"📋 <b>Ваші поїздки ({count})</b>\n\nОберіть категорію:",
+        "📋 <b>Ваші поїздки</b>\n\nОберіть категорію:",
         parse_mode="HTML",
-        reply_markup=my_trips_menu_kb(),
+        reply_markup=my_trips_menu_kb(active=active, confirmed=confirmed, closed=closed),
     )
 
 
