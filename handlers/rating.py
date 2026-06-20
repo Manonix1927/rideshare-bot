@@ -16,9 +16,16 @@ async def my_rating(message: Message, session: AsyncSession) -> None:
         await message.answer("❌ Користувача не знайдено. Напишіть /start")
         return
 
-    total = await session.scalar(
-        select(func.count()).select_from(Trip).where(Trip.user_id == user.id)
-    )
+    def _count(status_list):
+        return select(func.count()).select_from(Trip).where(
+            Trip.user_id == user.id,
+            Trip.status.in_(status_list),
+        )
+
+    active    = await session.scalar(_count(["ACTIVE", "MATCHING"]))
+    confirmed = await session.scalar(_count(["CONFIRMED"]))
+    closed    = await session.scalar(_count(["CLOSED"]))
+    cancelled = await session.scalar(_count(["CANCELLED"]))
 
     if user.rating is not None:
         stars = "⭐" * round(user.rating)
@@ -28,9 +35,12 @@ async def my_rating(message: Message, session: AsyncSession) -> None:
 
     await message.answer(
         f"⭐ <b>Мій рейтинг</b>\n\n"
-        f"{rating_line}"
-        f"🚗 Поїздок всього: {total or 0}\n"
-        f"✅ Успішних: {user.successful_trips}\n"
+        f"{rating_line}\n"
+        f"🔄 Активних: {active or 0}\n"
+        f"🤝 Підтверджених: {confirmed or 0}\n"
+        f"✅ Завершених: {closed or 0}\n"
+        f"🚫 Скасованих: {cancelled or 0}\n\n"
+        f"🏆 Успішних: {user.successful_trips}\n"
         f"❌ Неуспішних: {user.failed_trips}",
         parse_mode="HTML",
     )
