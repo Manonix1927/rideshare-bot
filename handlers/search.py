@@ -4,8 +4,9 @@ Search trips near user's location (within 3 km).
 import math
 import urllib.parse
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -103,6 +104,15 @@ def _map_kb(trip: Trip):
     return builder.as_markup()
 
 
+def _create_trip_kb() -> object:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🚗 Я водій", callback_data="new_trip:driver"),
+        InlineKeyboardButton(text="🙋 Я пасажир", callback_data="new_trip:passenger"),
+    )
+    return builder.as_markup()
+
+
 def _role_filter_kb(lat: float, lon: float, driver_n: int, passenger_n: int):
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     from aiogram.types import InlineKeyboardButton
@@ -171,8 +181,8 @@ async def _show_search_results(
     if total == 0:
         await message.answer(
             f"😔 Поїздок у радіусі {SEARCH_RADIUS_KM:.0f} км не знайдено.\n\n"
-            "Спробуйте пізніше або створіть власну заявку.",
-            reply_markup=main_menu_kb(),
+            "Створіть власну поїздку — і вас знайдуть:",
+            reply_markup=_create_trip_kb(),
         )
         return
 
@@ -221,18 +231,21 @@ async def search_results_page(callback: CallbackQuery, session: AsyncSession) ->
         )
 
     # Pagination nav
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    from aiogram.types import InlineKeyboardButton
     nav = InlineKeyboardBuilder()
     if page > 0:
         nav.button(text="◀️ Назад", callback_data=f"search:{role}:{page-1}:{lat}:{lon}")
     if start + RESULTS_PER_PAGE < total:
         nav.button(text="▶️ Далі", callback_data=f"search:{role}:{page+1}:{lat}:{lon}")
-    nav.button(text="↩️ Повернутись", callback_data=f"search:back:{lat}:{lon}")
     nav.adjust(2)
+    nav.row(InlineKeyboardButton(text="↩️ Повернутись", callback_data=f"search:back:{lat}:{lon}"))
+    nav.row(
+        InlineKeyboardButton(text="🚗 Я водій", callback_data="new_trip:driver"),
+        InlineKeyboardButton(text="🙋 Я пасажир", callback_data="new_trip:passenger"),
+    )
 
     await callback.message.answer(
-        f"Показано {start+1}–{min(start+RESULTS_PER_PAGE, total)} з {total}",
+        f"Показано {start+1}–{min(start+RESULTS_PER_PAGE, total)} з {total}\n\n"
+        "Або створіть власну поїздку:",
         reply_markup=nav.as_markup(),
     )
     await callback.answer()
@@ -249,4 +262,46 @@ async def search_back(callback: CallbackQuery, session: AsyncSession) -> None:
         parse_mode="HTML",
         reply_markup=_role_filter_kb(lat, lon, len(drivers), len(passengers)),
     )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("new_trip:"))
+async def new_trip_from_search(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    from database.models import User
+    from sqlalchemy import func as _func
+    from states.states import DriverStates, PassengerStates
+
+    role = callback.data.split(":")[1]
+    user_id = callback.from_user.id
+
+    user = await session.get(User, user_id)
+    if user and user.is_blocked:
+        await callback.answer("Ваш акаунт заблоковано.", show_alert=True)
+        return
+
+    active_count = await session.scalar(
+        select(_func.count()).select_from(Trip).where(
+            Trip.user_id == user_id,
+            Trip.status.in_(["ACTIVE", "MATCHING"]),
+        )
+    )
+    if active_count and active_count >= 3:
+        await callback.answer("У вас вже є активні заявки.", show_alert=True)
+        return
+
+    await state.clear()
+    if role == "driver":
+        await state.set_state(DriverStates.from_address)
+        await callback.message.answer(
+            "🚗 <b>Нова поїздка — крок 1/5</b>\n\nВкажіть адресу відправлення:",
+            parse_mode="HTML",
+            reply_markup=geo_or_text_kb(),
+        )
+    else:
+        await state.set_state(PassengerStates.from_address)
+        await callback.message.answer(
+            "🙋 <b>Нова заявка — крок 1/5</b>\n\nВкажіть адресу відправлення:",
+            parse_mode="HTML",
+            reply_markup=geo_or_text_kb(),
+        )
     await callback.answer()
