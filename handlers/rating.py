@@ -22,8 +22,7 @@ async def my_rating(message: Message, session: AsyncSession) -> None:
             Trip.status.in_(status_list),
         )
 
-    active    = await session.scalar(_count(["ACTIVE", "MATCHING"]))
-    confirmed = await session.scalar(_count(["CONFIRMED"]))
+    active    = await session.scalar(_count(["ACTIVE", "MATCHING", "CONFIRMED"]))
     closed    = await session.scalar(_count(["CLOSED"]))
     cancelled = await session.scalar(_count(["CANCELLED"]))
 
@@ -37,10 +36,7 @@ async def my_rating(message: Message, session: AsyncSession) -> None:
         f"⭐ <b>Мій рейтинг</b>\n\n"
         f"{rating_line}\n"
         f"🔄 Активних: {active or 0}\n"
-        f"🤝 Підтверджених: {confirmed or 0}\n"
         f"✅ Завершених: {closed or 0}\n"
-        f"🚫 Скасованих: {cancelled or 0}\n\n"
-        f"🏆 Успішних: {user.successful_trips}\n"
-        f"❌ Неуспішних: {user.failed_trips}",
+        f"🚫 Скасованих: {cancelled or 0}",
         parse_mode="HTML",
     )
