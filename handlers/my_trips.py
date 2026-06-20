@@ -300,7 +300,8 @@ async def edit_field_chosen(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-async def _apply_edit(state: FSMContext, session: AsyncSession, **kwargs) -> Trip | None:
+async def _apply_edit(state: FSMContext, session: AsyncSession, **kwargs) -> int | None:
+    """Apply edits and return trip_id (int) — avoids expired-object issues after commit."""
     data = await state.get_data()
     trip_id = data.get("editing_trip_id")
     trip = await session.get(Trip, trip_id)
@@ -309,21 +310,21 @@ async def _apply_edit(state: FSMContext, session: AsyncSession, **kwargs) -> Tri
     for k, v in kwargs.items():
         setattr(trip, k, v)
     await session.commit()
-    return trip
+    return trip_id
 
 
-async def _notify_match_partner(trip: Trip, text: str, session: AsyncSession, bot: Bot) -> None:
+async def _notify_match_partner(trip_id: int, text: str, session: AsyncSession, bot: Bot) -> None:
     """Notify the matched partner (if any MATCHING/CONFIRMED match) about an edit."""
     result = await session.execute(
         select(Match).where(
             Match.status.in_(["MATCHING", "CONFIRMED"]),
-            (Match.driver_trip_id == trip.id) | (Match.passenger_trip_id == trip.id),
+            (Match.driver_trip_id == trip_id) | (Match.passenger_trip_id == trip_id),
         )
     )
     match = result.scalars().first()
     if not match:
         return
-    partner_trip_id = match.passenger_trip_id if match.driver_trip_id == trip.id else match.driver_trip_id
+    partner_trip_id = match.passenger_trip_id if match.driver_trip_id == trip_id else match.driver_trip_id
     partner_trip = await session.get(Trip, partner_trip_id)
     if partner_trip:
         try:
@@ -467,13 +468,15 @@ async def edit_seats(message: Message, state: FSMContext, session: AsyncSession,
     except ValueError:
         await message.answer("❌ Введіть число від 1 до 4.")
         return
-    trip = await _apply_edit(state, session, seats=seats)
+    data = await state.get_data()
+    trip_obj = await session.get(Trip, data.get("editing_trip_id"))
+    label = "місць" if trip_obj and trip_obj.role == "driver" else "пасажирів"
+    trip_id = await _apply_edit(state, session, seats=seats)
     await state.clear()
     await message.answer(f"✅ Кількість місць оновлено: {seats}", reply_markup=main_menu_kb())
-    if trip:
-        label = "місць" if trip.role == "driver" else "пасажирів"
+    if trip_id:
         await _notify_match_partner(
-            trip,
+            trip_id,
             f"💺 Попутник змінив кількість {label}: <b>{seats}</b>",
             session, bot,
         )
