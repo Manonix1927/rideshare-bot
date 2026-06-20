@@ -2,7 +2,6 @@ from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import default_state
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import User
@@ -66,11 +65,3 @@ async def back_to_main(message: Message, state: FSMContext) -> None:
 @router.message(F.text == "ℹ️ Як це працює")
 async def how_it_works(message: Message) -> None:
     await message.answer(HOW_IT_WORKS, parse_mode="HTML")
-
-
-@router.message(default_state, F.text)
-async def unknown_message(message: Message) -> None:
-    await message.answer(
-        "Натисніть /start або оберіть дію в меню нижче:",
-        reply_markup=main_menu_kb(),
-    )

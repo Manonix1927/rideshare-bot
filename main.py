@@ -18,7 +18,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import BOT_TOKEN, REDIS_URL
 from database.database import init_db, AsyncSessionLocal
 from database.models import DriverLocation, PassengerLocation
-from handlers import start, driver, passenger, announcements, my_trips, rating, support, faq, admin, matching, search, trip_actions
+from handlers import start, driver, passenger, announcements, my_trips, rating, support, faq, admin, matching, search, trip_actions, fallback
 from services.notifications import auto_close_expired_trips, send_rating_prompts, send_trip_reminders, check_pending_match_timeouts
 from services.bot_settings import reload as reload_bot_settings
 from admin.routes import setup_admin
@@ -217,6 +217,7 @@ async def main() -> None:
     dp.include_router(support.router)
     dp.include_router(faq.router)
     dp.include_router(admin.router)
+    dp.include_router(fallback.router)
 
     await reload_bot_settings()
 
