@@ -221,7 +221,6 @@ def support_type_kb() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="🐞 Повідомити про проблему", callback_data="support:bug"))
     builder.row(InlineKeyboardButton(text="💡 Запропонувати покращення", callback_data="support:improvement"))
     builder.row(InlineKeyboardButton(text="⭐ Залишити відгук", callback_data="support:feedback"))
-    builder.row(InlineKeyboardButton(text="📞 Зв'язатися з підтримкою", callback_data="support:contact"))
     return builder.as_markup()
 
 
