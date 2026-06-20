@@ -334,6 +334,7 @@ async def _notify_match_partner(trip: Trip, text: str, session: AsyncSession, bo
 
 @router.message(EditTripStates.editing_from, F.web_app_data)
 async def edit_from_webapp(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
+    await message.delete()
     try:
         data = _json.loads(message.web_app_data.data)
         lat, lon, address = float(data["lat"]), float(data["lon"]), data["address"]
@@ -378,6 +379,7 @@ async def edit_from_text(message: Message, state: FSMContext, session: AsyncSess
 
 @router.message(EditTripStates.editing_to, F.web_app_data)
 async def edit_to_webapp(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
+    await message.delete()
     try:
         data = _json.loads(message.web_app_data.data)
         lat, lon, address = float(data["lat"]), float(data["lon"]), data["address"]

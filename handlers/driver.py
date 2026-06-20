@@ -101,6 +101,7 @@ async def driver_from_text(message: Message, state: FSMContext) -> None:
 
 @router.message(DriverStates.from_address, F.web_app_data)
 async def driver_from_webapp(message: Message, state: FSMContext) -> None:
+    await message.delete()
     try:
         data = _json.loads(message.web_app_data.data)
         lat, lon = float(data["lat"]), float(data["lon"])
@@ -121,6 +122,7 @@ async def driver_from_webapp(message: Message, state: FSMContext) -> None:
 
 @router.message(DriverStates.to_address, F.web_app_data)
 async def driver_to_webapp(message: Message, state: FSMContext) -> None:
+    await message.delete()
     try:
         data = _json.loads(message.web_app_data.data)
         lat, lon = float(data["lat"]), float(data["lon"])
