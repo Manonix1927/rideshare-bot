@@ -159,25 +159,25 @@ async def geocode_address(
         if loc:
             candidates.append(loc)
 
-    # 2) Structured dict search without city (handles "жмеринська 35" with no city in query)
-    if not candidates:
-        loc = await _try_dict(address)
-        if loc:
-            candidates.append(loc)
-
-    # 3) Free-text inside viewbox (bounded)
+    # 2) Free-text inside viewbox (bounded)
     if viewbox and not candidates:
         loc = await _try(address, viewbox, bounded=True)
         if loc:
             candidates.append(loc)
 
-    # 4) Free-text biased (not bounded) — viewbox is a hint
+    # 3) Free-text biased (not bounded) — viewbox is a hint
     if viewbox and not candidates:
         loc = await _try(address, viewbox, bounded=False)
         if loc:
             candidates.append(loc)
 
-    # 5) Country-wide free-text fallback
+    # 4) If city detected but street_only search failed — try full query biased toward city
+    if city_coords and not candidates:
+        loc = await _try(address, viewbox, bounded=False)
+        if loc:
+            candidates.append(loc)
+
+    # 5) Country-wide free-text fallback (Nominatim ranks major cities higher)
     if not candidates:
         loc = await _try(address, None, False)
         if loc:
