@@ -96,10 +96,12 @@ async def geocode_address_multi(
     address: str,
     near_lat: float | None = None,
     near_lon: float | None = None,
+    home_city: str | None = None,
 ) -> list[tuple[float, float, str, str]]:
     """
     Return up to 5 unique-city results: [(lat, lon, display_address, city_name), ...].
     Used to offer city disambiguation when the same street exists in multiple cities.
+    home_city biases results toward user's known city when no city is explicit in query.
     """
     loop = asyncio.get_event_loop()
 
@@ -110,6 +112,10 @@ async def geocode_address_multi(
         vb_lat, vb_lon = city_coords
     elif near_lat is not None and near_lon is not None:
         vb_lat, vb_lon = near_lat, near_lon
+    elif home_city:
+        home_coords = _UA_CITIES.get(home_city.lower())
+        if home_coords:
+            vb_lat, vb_lon = home_coords
 
     kwargs: dict = {
         "country_codes": "ua",

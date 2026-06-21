@@ -22,6 +22,7 @@ async def _run_migrations() -> None:
 
     # ── New columns ────────────────────────────────────────────────────────────
     new_cols = [
+        ("users",   "home_city",                  "VARCHAR"),
         ("matches", "reminder_sent",              "BOOLEAN DEFAULT FALSE"),
         ("matches", "driver_departed",            "BOOLEAN DEFAULT FALSE"),
         ("matches", "passenger_ready",            "BOOLEAN DEFAULT FALSE"),

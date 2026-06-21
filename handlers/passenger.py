@@ -77,13 +77,16 @@ async def passenger_from_location(message: Message, state: FSMContext) -> None:
 
 
 @router.message(PassengerStates.from_address, F.text)
-async def passenger_from_text(message: Message, state: FSMContext) -> None:
+async def passenger_from_text(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "🔙 Головне меню":
         await state.clear()
         await message.answer("Головне меню:", reply_markup=main_menu_kb())
         return
 
-    candidates = await geocode_address_multi(message.text)
+    user = await session.get(User, message.from_user.id)
+    home_city = user.home_city if user else None
+
+    candidates = await geocode_address_multi(message.text, home_city=home_city)
     if not candidates:
         await message.answer("❌ Не вдалося знайти адресу. Спробуйте ще раз або надішліть геолокацію.")
         return
@@ -375,6 +378,14 @@ async def passenger_count_cb(callback: CallbackQuery, state: FSMContext, session
         status="ACTIVE",
     )
     session.add(trip)
+
+    from_city = data.get("from_city", "")
+    to_city = await get_city_from_coords(data["to_lat"], data["to_lon"])
+    if from_city and to_city and from_city.lower() == to_city.lower():
+        user = await session.get(User, callback.from_user.id)
+        if user and not user.home_city:
+            user.home_city = from_city
+
     await session.commit()
     await session.refresh(trip)
 
@@ -427,6 +438,14 @@ async def passenger_count(message: Message, state: FSMContext, session: AsyncSes
         status="ACTIVE",
     )
     session.add(trip)
+
+    from_city = data.get("from_city", "")
+    to_city_p = await get_city_from_coords(data["to_lat"], data["to_lon"])
+    if from_city and to_city_p and from_city.lower() == to_city_p.lower():
+        user = await session.get(User, message.from_user.id)
+        if user and not user.home_city:
+            user.home_city = from_city
+
     await session.commit()
     await session.refresh(trip)
 

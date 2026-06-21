@@ -20,6 +20,7 @@ class User(Base):
     successful_trips = Column(Integer, default=0)
     failed_trips = Column(Integer, default=0)
     is_blocked = Column(Boolean, default=False)
+    home_city = Column(String, nullable=True, default=None)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     trips = relationship("Trip", back_populates="user", cascade="all, delete-orphan")

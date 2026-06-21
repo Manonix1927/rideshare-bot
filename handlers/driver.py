@@ -77,13 +77,16 @@ async def driver_from_location(message: Message, state: FSMContext, session: Asy
 
 
 @router.message(DriverStates.from_address, F.text)
-async def driver_from_text(message: Message, state: FSMContext) -> None:
+async def driver_from_text(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "🔙 Головне меню":
         await state.clear()
         await message.answer("Головне меню:", reply_markup=main_menu_kb())
         return
 
-    candidates = await geocode_address_multi(message.text)
+    user = await session.get(User, message.from_user.id)
+    home_city = user.home_city if user else None
+
+    candidates = await geocode_address_multi(message.text, home_city=home_city)
     if not candidates:
         await message.answer("❌ Не вдалося знайти адресу. Спробуйте ще раз або надішліть геолокацію.")
         return
@@ -375,6 +378,15 @@ async def driver_seats_cb(callback: CallbackQuery, state: FSMContext, session: A
         status="ACTIVE",
     )
     session.add(trip)
+
+    # Save home_city if intra-city trip and user has none yet
+    from_city = data.get("from_city", "")
+    to_city = await get_city_from_coords(data["to_lat"], data["to_lon"])
+    if from_city and to_city and from_city.lower() == to_city.lower():
+        user = await session.get(User, callback.from_user.id)
+        if user and not user.home_city:
+            user.home_city = from_city
+
     await session.commit()
     await session.refresh(trip)
 
@@ -427,6 +439,14 @@ async def driver_seats(message: Message, state: FSMContext, session: AsyncSessio
         status="ACTIVE",
     )
     session.add(trip)
+
+    from_city = data.get("from_city", "")
+    to_city = await get_city_from_coords(data["to_lat"], data["to_lon"])
+    if from_city and to_city and from_city.lower() == to_city.lower():
+        user = await session.get(User, message.from_user.id)
+        if user and not user.home_city:
+            user.home_city = from_city
+
     await session.commit()
     await session.refresh(trip)
 
