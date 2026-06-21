@@ -138,44 +138,46 @@ async def geocode_address(
         except (GeocoderTimedOut, GeocoderServiceError):
             return None
 
-    async def _try_structured(street: str, city: str) -> Optional[object]:
-        """Nominatim structured search — much more reliable than free text."""
-        street = _STREET_PREFIXES.sub("", street).strip()
-        query = f"{street}, {city}, Україна"
+    async def _try_dict(street: str, city: str | None = None) -> Optional[object]:
+        """Nominatim structured dict search — finds house numbers reliably."""
+        street_clean = _STREET_PREFIXES.sub("", street).strip()
+        params: dict = {"street": street_clean, "country": "Ukraine"}
+        if city:
+            params["city"] = city
         try:
             return await loop.run_in_executor(
-                None, lambda: _geocoder.geocode(query, **base_kwargs)
+                None, lambda: _geocoder.geocode(params, language="uk", addressdetails=True)
             )
         except (GeocoderTimedOut, GeocoderServiceError):
             return None
 
     candidates = []
 
-    # 1) Structured search if city was detected
+    # 1) Structured dict search with city (most precise — finds house numbers)
     if city_name and street_only:
-        loc = await _try_structured(street_only, city_name)
+        loc = await _try_dict(street_only, city_name)
         if loc:
             candidates.append(loc)
 
-    # 2) Free-text inside viewbox (bounded)
+    # 2) Structured dict search without city (handles "жмеринська 35" with no city in query)
+    if not candidates:
+        loc = await _try_dict(address)
+        if loc:
+            candidates.append(loc)
+
+    # 3) Free-text inside viewbox (bounded)
     if viewbox and not candidates:
         loc = await _try(address, viewbox, bounded=True)
         if loc:
             candidates.append(loc)
 
-    # 3) Free-text biased (not bounded) — viewbox is a hint
+    # 4) Free-text biased (not bounded) — viewbox is a hint
     if viewbox and not candidates:
         loc = await _try(address, viewbox, bounded=False)
         if loc:
             candidates.append(loc)
 
-    # 4) If city detected but street_only search failed — try full query biased toward city
-    if city_coords and not candidates:
-        loc = await _try(address, viewbox, bounded=False)
-        if loc:
-            candidates.append(loc)
-
-    # 5) Country-wide fallback (original query)
+    # 5) Country-wide free-text fallback
     if not candidates:
         loc = await _try(address, None, False)
         if loc:
