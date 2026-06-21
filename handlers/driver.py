@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from database.models import Trip, User
-from keyboards.keyboards import geo_or_text_kb, dest_kb, cancel_kb, main_menu_kb, confirm_address_kb, date_picker_kb, time_picker_kb, seats_kb
+from keyboards.keyboards import geo_or_text_kb, dest_kb, cancel_kb, main_menu_kb, confirm_address_kb, city_picker_kb, date_picker_kb, time_picker_kb, seats_kb
 from services import bot_settings as _s
-from services.geo import geocode_address, reverse_geocode, get_city_from_coords, _detect_city
+from services.geo import geocode_address, geocode_address_multi, reverse_geocode, get_city_from_coords, _detect_city
 from services.matching import find_matches_for_trip, create_match
 from services.notifications import notify_new_match
 from states.states import DriverStates
@@ -83,13 +83,20 @@ async def driver_from_text(message: Message, state: FSMContext) -> None:
         await message.answer("Головне меню:", reply_markup=main_menu_kb())
         return
 
-    result = await geocode_address(message.text)
-    if not result:
+    candidates = await geocode_address_multi(message.text)
+    if not candidates:
         await message.answer("❌ Не вдалося знайти адресу. Спробуйте ще раз або надішліть геолокацію.")
         return
 
-    lat, lon, address = result
-    city = await get_city_from_coords(lat, lon)
+    if len(candidates) > 1:
+        await state.update_data(city_candidates=candidates)
+        await message.answer(
+            "📍 Знайдено вулицю у кількох містах. Оберіть потрібне:",
+            reply_markup=city_picker_kb(candidates, role="driver", field="from"),
+        )
+        return
+
+    lat, lon, address, city = candidates[0]
     await state.update_data(from_lat=lat, from_lon=lon, from_address=address, from_city=city)
     await state.set_state(DriverStates.to_address)
     await message.answer(
@@ -166,17 +173,24 @@ async def driver_to_text(message: Message, state: FSMContext) -> None:
     from_city = data.get("from_city", "")
 
     query = message.text
-    # Only prepend from_city if user didn't already mention any Ukrainian city
     city_in_query, _, _ = _detect_city(query)
     if not city_in_query and from_city and from_city.lower() not in query.lower():
         query = f"{query}, {from_city}"
 
-    result = await geocode_address(query, near_lat=near_lat, near_lon=near_lon)
-    if not result:
+    candidates = await geocode_address_multi(query, near_lat=near_lat, near_lon=near_lon)
+    if not candidates:
         await message.answer("❌ Не вдалося знайти адресу. Спробуйте ще раз або надішліть геолокацію.")
         return
 
-    lat, lon, address = result
+    if len(candidates) > 1:
+        await state.update_data(city_candidates=candidates)
+        await message.answer(
+            "📍 Знайдено вулицю у кількох містах. Оберіть потрібне:",
+            reply_markup=city_picker_kb(candidates, role="driver", field="to"),
+        )
+        return
+
+    lat, lon, address, _city = candidates[0]
     await state.update_data(pending_to_lat=lat, pending_to_lon=lon, pending_to_address=address)
     await message.answer(
         f"📍 Знайдено: <b>{address}</b>\n\nЦе правильна адреса?",

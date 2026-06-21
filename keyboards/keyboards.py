@@ -88,6 +88,15 @@ def cancel_kb() -> ReplyKeyboardMarkup:
     return builder.as_markup(resize_keyboard=True)
 
 
+def city_picker_kb(candidates: list, role: str, field: str) -> InlineKeyboardMarkup:
+    """Inline keyboard with city buttons for disambiguation."""
+    builder = InlineKeyboardBuilder()
+    for i, (_lat, _lon, _addr, city) in enumerate(candidates):
+        builder.button(text=city, callback_data=f"pick_city:{role}:{field}:{i}")
+    builder.adjust(3)
+    return builder.as_markup()
+
+
 def confirm_address_kb(role: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(

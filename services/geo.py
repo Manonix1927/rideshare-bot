@@ -92,6 +92,62 @@ def _format_address(raw: dict) -> str:
     return ", ".join(p for p in parts if p) or city or "Невідома адреса"
 
 
+async def geocode_address_multi(
+    address: str,
+    near_lat: float | None = None,
+    near_lon: float | None = None,
+) -> list[tuple[float, float, str, str]]:
+    """
+    Return up to 5 unique-city results: [(lat, lon, display_address, city_name), ...].
+    Used to offer city disambiguation when the same street exists in multiple cities.
+    """
+    loop = asyncio.get_event_loop()
+
+    _, city_coords, _ = _detect_city(address)
+
+    vb_lat, vb_lon = None, None
+    if city_coords:
+        vb_lat, vb_lon = city_coords
+    elif near_lat is not None and near_lon is not None:
+        vb_lat, vb_lon = near_lat, near_lon
+
+    kwargs: dict = {
+        "country_codes": "ua",
+        "language": "uk",
+        "addressdetails": True,
+        "exactly_one": False,
+        "limit": 5,
+    }
+    if vb_lat is not None:
+        kwargs["viewbox"] = [
+            (vb_lat + _VIEWBOX_DEG, vb_lon - _VIEWBOX_DEG),
+            (vb_lat - _VIEWBOX_DEG, vb_lon + _VIEWBOX_DEG),
+        ]
+        kwargs["bounded"] = False
+
+    try:
+        results = await loop.run_in_executor(
+            None, lambda: _geocoder.geocode(address, **kwargs)
+        ) or []
+    except (GeocoderTimedOut, GeocoderServiceError):
+        return []
+
+    if not isinstance(results, list):
+        results = [results]
+
+    seen_cities: set[str] = set()
+    unique: list[tuple[float, float, str, str]] = []
+    for loc in results:
+        a = loc.raw.get("address", {})
+        city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or ""
+        if not city or city in seen_cities:
+            continue
+        seen_cities.add(city)
+        unique.append((loc.latitude, loc.longitude, _format_address(loc.raw), city))
+
+    return unique
+
+
 async def geocode_address(
     address: str,
     near_lat: float | None = None,
