@@ -18,11 +18,13 @@
   {% endfor %}
 </div>
 
-<!-- Map -->
-<div class="card mb-3">
+<!-- Map (visible only for ACTIVE / MATCHING / CONFIRMED tabs) -->
+{% if status_filter not in ('CLOSED', 'ALL') %}
+<div class="card mb-3" id="map-card">
   <div class="card-header">🗺 Карта поїздок</div>
   <div id="map" style="height:500px;border-radius:0 0 10px 10px"></div>
 </div>
+{% endif %}
 
 <!-- Table -->
 <div class="card">
@@ -81,44 +83,70 @@ const tileUrl = isDark
   ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
   : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 
-const map = L.map('map').setView([49.0, 31.5], 6);
-L.tileLayer(tileUrl, { attribution: '© OSM © CartoDB', maxZoom: 18 }).addTo(map);
-
 const roleColor = { driver: '#6c8ef7', passenger: '#c084fc' };
-function mkIcon(role) {
+
+function mkDot(color, size=10) {
   return L.divIcon({
-    html: `<div style="width:12px;height:12px;border-radius:50%;background:${roleColor[role]||'#aaa'};border:2px solid #fff;box-shadow:0 0 4px ${roleColor[role]||'#aaa'}80"></div>`,
-    className: '', iconSize: [12,12], iconAnchor: [6,6],
+    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 4px ${color}80"></div>`,
+    className: '', iconSize: [size,size], iconAnchor: [size/2,size/2],
   });
 }
 
 let tripsData = [];
+
+{% if status_filter not in ('CLOSED', 'ALL') %}
+const map = L.map('map').setView([49.0, 31.5], 6);
+L.tileLayer(tileUrl, { attribution: '© OSM © CartoDB', maxZoom: 18 }).addTo(map);
+
 fetch('/admin/api/trips/map')
   .then(r => r.json())
   .then(data => {
     tripsData = data.features;
+    const allCoords = [];
+
     data.features.forEach(f => {
       const p = f.properties;
-      const [lon, lat] = f.geometry.coordinates;
-      L.marker([lat, lon], { icon: mkIcon(p.role) })
-        .addTo(map)
-        .bindPopup(`
-          <b>${p.role === 'driver' ? '🚗 Водій' : '🙋 Пасажир'}</b><br>
-          <b>${p.user}</b>${p.username ? ' @'+p.username : ''}<br>
-          📍 ${p.from_addr.split(',')[0]}<br>
-          🏁 ${p.to_addr.split(',')[0]}<br>
-          🕒 ${p.time}
-          ${p.price ? '<br>💰 '+Math.round(p.price)+' грн' : ''}
-          <br><a href="#" onclick="openTrip(${p.id});return false" style="color:#6c8ef7">Деталі →</a>
-        `);
+      const fLat = p.from_lat, fLon = p.from_lon;
+      const tLat = p.to_lat,   tLon = p.to_lon;
+      const color = roleColor[p.role] || '#aaa';
+
+      const popup = `
+        <b>${p.role === 'driver' ? '🚗 Водій' : '🙋 Пасажир'}</b>
+        <span style="font-size:11px;color:#aaa;margin-left:4px">${p.status}</span><br>
+        <b>${p.user}</b>${p.username ? ' <span style="color:#6b7280">@'+p.username+'</span>' : ''}<br>
+        📍 ${p.from_addr}<br>
+        🏁 ${p.to_addr}<br>
+        🕒 ${p.time}${p.price ? '<br>💰 '+Math.round(p.price)+' грн' : ''}
+        <br><a href="#" onclick="openTrip(${p.id});return false" style="color:#6c8ef7">Деталі →</a>`;
+
+      if (fLat && fLon && tLat && tLon) {
+        /* Route line */
+        L.polyline([[fLat, fLon], [tLat, tLon]], {
+          color, weight: 3, opacity: 0.75, dashArray: '8 5',
+        }).addTo(map);
+
+        /* From marker (filled dot) */
+        L.marker([fLat, fLon], { icon: mkDot(color, 12) })
+          .addTo(map).bindPopup(popup);
+
+        /* To marker (hollow dot) */
+        L.marker([tLat, tLon], { icon: mkDot('#fff', 8) })
+          .addTo(map);
+
+        allCoords.push([fLat, fLon], [tLat, tLon]);
+      } else if (fLat && fLon) {
+        L.marker([fLat, fLon], { icon: mkDot(color, 12) })
+          .addTo(map).bindPopup(popup);
+        allCoords.push([fLat, fLon]);
+      }
     });
-    if (data.features.length) {
-      const lats = data.features.map(f => f.geometry.coordinates[1]);
-      const lons = data.features.map(f => f.geometry.coordinates[0]);
-      map.fitBounds([[Math.min(...lats)-.5,Math.min(...lons)-.5],[Math.max(...lats)+.5,Math.max(...lons)+.5]]);
+
+    if (allCoords.length) {
+      map.fitBounds(L.latLngBounds(allCoords).pad(0.15));
     }
   })
   .catch(() => {});
+{% endif %}
 
 /* ── detail modal map ─────────────────────────────────────────────────── */
 let detailMap = null;
@@ -127,7 +155,7 @@ function openTrip(id) {
   const f = tripsData.find(x => x.properties.id === id);
   if (!f) { new bootstrap.Modal(document.getElementById('tripModal')).show(); return; }
   const p = f.properties;
-  const [fLon, fLat] = f.geometry.coordinates;
+  const fLat = p.from_lat, fLon = p.from_lon;
   const toLat = p.to_lat, toLon = p.to_lon;
 
   document.getElementById('modalTitle').textContent =

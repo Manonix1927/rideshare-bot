@@ -380,6 +380,7 @@ async def api_trips_map(request: web.Request) -> web.Response:
             "properties": {
                 "id": t.id, "role": t.role, "status": t.status,
                 "from_addr": t.from_address, "to_addr": t.to_address,
+                "from_lat": t.from_lat, "from_lon": t.from_lon,
                 "to_lat": t.to_lat, "to_lon": t.to_lon,
                 "time": t.departure_time.strftime("%d.%m %H:%M"),
                 "price": t.price, "seats": t.seats,
