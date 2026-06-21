@@ -5,6 +5,7 @@ Auth: ADMIN_TOKEN env var (cookie-based session).
 """
 import asyncio
 import hashlib
+import json
 import os
 from datetime import timedelta
 from pathlib import Path
@@ -150,8 +151,21 @@ async def admin_trips(request: web.Request) -> web.Response:
         if status_filter != "ALL":
             q = q.where(Trip.status == status_filter)
         trips = (await s.execute(q)).scalars().all()
+
+    trips_json = json.dumps([{
+        "id": t.id, "role": t.role, "status": t.status,
+        "from_addr": t.from_address or "", "to_addr": t.to_address or "",
+        "from_lat": t.from_lat, "from_lon": t.from_lon,
+        "to_lat": t.to_lat, "to_lon": t.to_lon,
+        "time": t.departure_time.strftime("%d.%m %H:%M"),
+        "price": t.price, "seats": t.seats,
+        "user": t.user.first_name if t.user else "?",
+        "username": t.user.username if t.user else None,
+    } for t in trips], ensure_ascii=False)
+
     return aiohttp_jinja2.render_template("trips.html", request, {
-        "active": "trips", "trips": trips, "status_filter": status_filter,
+        "active": "trips", "trips": trips,
+        "status_filter": status_filter, "trips_json": trips_json,
     })
 
 

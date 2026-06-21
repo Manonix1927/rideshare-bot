@@ -92,7 +92,9 @@ function mkDot(color, size=10) {
   });
 }
 
-let tripsData = [];
+/* tripsData is always populated from server-side data (works on all tabs) */
+const _pageTrips = {{ trips_json | safe }};
+let tripsData = _pageTrips.map(p => ({ type: "Feature", geometry: null, properties: p }));
 
 {% if status_filter not in ('CLOSED', 'ALL') %}
 const map = L.map('map').setView([49.0, 31.5], 6);
@@ -101,7 +103,12 @@ L.tileLayer(tileUrl, { attribution: '© OSM © CartoDB', maxZoom: 18 }).addTo(ma
 fetch('/admin/api/trips/map')
   .then(r => r.json())
   .then(data => {
-    tripsData = data.features;
+    /* Merge API data into tripsData — API may include trips from other tabs */
+    data.features.forEach(f => {
+      if (!tripsData.find(x => x.properties.id === f.properties.id)) {
+        tripsData.push(f);
+      }
+    });
     const allCoords = [];
 
     data.features.forEach(f => {
