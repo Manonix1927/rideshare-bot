@@ -338,9 +338,13 @@ async def edit_from_webapp(message: Message, state: FSMContext, session: AsyncSe
     await message.delete()
     try:
         data = _json.loads(message.web_app_data.data)
-        lat, lon, address = float(data["lat"]), float(data["lon"]), data["address"]
+        lat, lon = float(data["lat"]), float(data["lon"])
+        address = data.get("address") or await reverse_geocode(lat, lon)
     except Exception:
         await message.answer("❌ Помилка даних карти.")
+        return
+    if not address:
+        await message.answer("❌ Не вдалося визначити адресу. Спробуйте ще раз або введіть вручну.")
         return
     trip = await _apply_edit(state, session, from_address=address, from_lat=lat, from_lon=lon)
     await state.clear()
@@ -386,9 +390,13 @@ async def edit_to_webapp(message: Message, state: FSMContext, session: AsyncSess
     await message.delete()
     try:
         data = _json.loads(message.web_app_data.data)
-        lat, lon, address = float(data["lat"]), float(data["lon"]), data["address"]
+        lat, lon = float(data["lat"]), float(data["lon"])
+        address = data.get("address") or await reverse_geocode(lat, lon)
     except Exception:
         await message.answer("❌ Помилка даних карти.")
+        return
+    if not address:
+        await message.answer("❌ Не вдалося визначити адресу. Спробуйте ще раз або введіть вручну.")
         return
     trip = await _apply_edit(state, session, to_address=address, to_lat=lat, to_lon=lon)
     await state.clear()

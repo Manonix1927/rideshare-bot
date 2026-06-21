@@ -118,9 +118,12 @@ async def passenger_from_webapp(message: Message, state: FSMContext) -> None:
     try:
         data = _json.loads(message.web_app_data.data)
         lat, lon = float(data["lat"]), float(data["lon"])
-        address = data.get("address") or f"{lat:.5f}, {lon:.5f}"
+        address = data.get("address") or await reverse_geocode(lat, lon)
     except Exception:
         await message.answer("❌ Помилка отримання даних з карти. Спробуйте ще раз.")
+        return
+    if not address:
+        await message.answer("❌ Не вдалося визначити адресу. Спробуйте ще раз або введіть вручну.")
         return
 
     city = await get_city_from_coords(lat, lon)
@@ -139,9 +142,12 @@ async def passenger_to_webapp(message: Message, state: FSMContext) -> None:
     try:
         data = _json.loads(message.web_app_data.data)
         lat, lon = float(data["lat"]), float(data["lon"])
-        address = data.get("address") or f"{lat:.5f}, {lon:.5f}"
+        address = data.get("address") or await reverse_geocode(lat, lon)
     except Exception:
         await message.answer("❌ Помилка отримання даних з карти. Спробуйте ще раз.")
+        return
+    if not address:
+        await message.answer("❌ Не вдалося визначити адресу. Спробуйте ще раз або введіть вручну.")
         return
 
     await state.update_data(to_lat=lat, to_lon=lon, to_address=address)
