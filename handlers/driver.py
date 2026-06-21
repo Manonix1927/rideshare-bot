@@ -66,6 +66,9 @@ async def driver_start(message: Message, state: FSMContext, session: AsyncSessio
 async def driver_from_location(message: Message, state: FSMContext, session: AsyncSession) -> None:
     lat, lon = message.location.latitude, message.location.longitude
     address = await reverse_geocode(lat, lon)
+    if not address:
+        await message.answer("❌ Не вдалося визначити адресу. Спробуйте ще раз або введіть адресу вручну.")
+        return
     city = await get_city_from_coords(lat, lon)
     await state.update_data(from_lat=lat, from_lon=lon, from_address=address, from_city=city)
     await state.set_state(DriverStates.to_address)
@@ -154,6 +157,9 @@ async def driver_to_webapp(message: Message, state: FSMContext) -> None:
 async def driver_to_location(message: Message, state: FSMContext) -> None:
     lat, lon = message.location.latitude, message.location.longitude
     address = await reverse_geocode(lat, lon)
+    if not address:
+        await message.answer("❌ Не вдалося визначити адресу. Спробуйте ще раз або введіть адресу вручну.")
+        return
     await state.update_data(to_lat=lat, to_lon=lon, to_address=address)
     await state.set_state(DriverStates.departure_time)
     await message.answer(

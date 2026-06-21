@@ -304,18 +304,19 @@ async def get_city_from_coords(lat: float, lon: float) -> str:
     return ""
 
 
-async def reverse_geocode(lat: float, lon: float) -> str:
-    """Return human-readable address for coordinates."""
+async def reverse_geocode(lat: float, lon: float) -> str | None:
+    """Return human-readable address for coordinates, or None if geocoding fails."""
     loop = asyncio.get_event_loop()
-    try:
-        location = await loop.run_in_executor(
-            None, lambda: _geocoder.reverse((lat, lon), language="uk")
-        )
-        if location:
-            return _format_address(location.raw)
-    except (GeocoderTimedOut, GeocoderServiceError):
-        pass
-    return f"{lat:.5f}, {lon:.5f}"
+    for _ in range(2):
+        try:
+            location = await loop.run_in_executor(
+                None, lambda: _geocoder.reverse((lat, lon), language="uk")
+            )
+            if location:
+                return _format_address(location.raw)
+        except (GeocoderTimedOut, GeocoderServiceError):
+            await asyncio.sleep(1)
+    return None
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

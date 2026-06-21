@@ -353,6 +353,9 @@ async def edit_from_webapp(message: Message, state: FSMContext, session: AsyncSe
 async def edit_from_location(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
     lat, lon = message.location.latitude, message.location.longitude
     address = await reverse_geocode(lat, lon)
+    if not address:
+        await message.answer("❌ Не вдалося визначити адресу. Спробуйте ще раз або введіть вручну.")
+        return
     trip = await _apply_edit(state, session, from_address=address, from_lat=lat, from_lon=lon)
     await state.clear()
     await message.answer(f"✅ Адреса відправлення оновлена: {address}", reply_markup=main_menu_kb())
@@ -398,6 +401,9 @@ async def edit_to_webapp(message: Message, state: FSMContext, session: AsyncSess
 async def edit_to_location(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
     lat, lon = message.location.latitude, message.location.longitude
     address = await reverse_geocode(lat, lon)
+    if not address:
+        await message.answer("❌ Не вдалося визначити адресу. Спробуйте ще раз або введіть вручну.")
+        return
     trip = await _apply_edit(state, session, to_address=address, to_lat=lat, to_lon=lon)
     await state.clear()
     await message.answer(f"✅ Адреса призначення оновлена: {address}", reply_markup=main_menu_kb())
