@@ -341,20 +341,42 @@ async def rate_user(callback: CallbackQuery, session: AsyncSession) -> None:
 
 
 @router.callback_query(F.data.startswith("manual_close:"))
-async def manual_close(callback: CallbackQuery, session: AsyncSession) -> None:
+async def manual_close(callback: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
+    from keyboards.keyboards import meeting_happened_kb
     match_id = int(callback.data.split(":")[1])
-    match = await session.get(Match, match_id)
-    if match:
+    match = await _get_match_with_trips(match_id, session)
+    caller_id = callback.from_user.id
+
+    if match and match.status == "CONFIRMED":
         match.status = "CLOSED"
-        driver_trip = await session.get(Trip, match.driver_trip_id)
-        passenger_trip = await session.get(Trip, match.passenger_trip_id)
-        if driver_trip:
-            driver_trip.status = "CLOSED"
-        if passenger_trip:
-            passenger_trip.status = "CLOSED"
+        match.driver_trip.status = "CLOSED"
+        match.passenger_trip.status = "CLOSED"
         await session.commit()
 
-    await callback.message.edit_text("✅ Поїздку завершено.")
+        driver_user = match.driver_trip.user
+        passenger_user = match.passenger_trip.user
+
+        # Показати кнопку оцінки тому хто натиснув
+        caller_role = "driver" if driver_user.id == caller_id else "passenger"
+        await callback.message.edit_text(
+            "✅ Поїздку завершено.\n\n🤝 Чи відбулась ваша зустріч з попутником?",
+            reply_markup=meeting_happened_kb(match_id, caller_role),
+        )
+
+        # Надіслати запит на оцінку другому учаснику
+        other_id = passenger_user.id if driver_user.id == caller_id else driver_user.id
+        other_role = "passenger" if driver_user.id == caller_id else "driver"
+        try:
+            await bot.send_message(
+                other_id,
+                "✅ Поїздку завершено.\n\n🤝 Чи відбулась ваша зустріч з попутником?",
+                reply_markup=meeting_happened_kb(match_id, other_role),
+            )
+        except Exception:
+            pass
+    else:
+        await callback.message.edit_text("✅ Поїздку завершено.")
+
     await callback.answer()
 
 
