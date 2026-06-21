@@ -92,6 +92,21 @@ def _format_address(raw: dict) -> str:
     return ", ".join(p for p in parts if p) or city or "Невідома адреса"
 
 
+async def _geocode_dict(street: str, city: str | None = None) -> Optional[object]:
+    """Nominatim structured dict search — finds house numbers reliably."""
+    loop = asyncio.get_event_loop()
+    street_clean = _STREET_PREFIXES.sub("", street).strip()
+    params: dict = {"street": street_clean, "country": "Ukraine"}
+    if city:
+        params["city"] = city
+    try:
+        return await loop.run_in_executor(
+            None, lambda: _geocoder.geocode(params, language="uk", addressdetails=True)
+        )
+    except (GeocoderTimedOut, GeocoderServiceError):
+        return None
+
+
 async def geocode_address_multi(
     address: str,
     near_lat: float | None = None,
@@ -151,6 +166,18 @@ async def geocode_address_multi(
         seen_cities.add(city)
         unique.append((loc.latitude, loc.longitude, _format_address(loc.raw), city))
 
+    # If exactly one city found — try structured dict search to get house number
+    city_name, _, street_only = _detect_city(address)
+    known_city = city_name or (home_city if not unique or (unique and unique[0][3]) else None)
+    if len(unique) == 1 and known_city:
+        street_q = street_only if city_name else address
+        dict_loc = await _geocode_dict(street_q, known_city)
+        if dict_loc and dict_loc.raw.get("address", {}).get("house_number"):
+            # Dict found a house — replace the free-text result with better one
+            a = dict_loc.raw.get("address", {})
+            city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or unique[0][3]
+            unique[0] = (dict_loc.latitude, dict_loc.longitude, _format_address(dict_loc.raw), city)
+
     return unique
 
 
@@ -200,24 +227,11 @@ async def geocode_address(
         except (GeocoderTimedOut, GeocoderServiceError):
             return None
 
-    async def _try_dict(street: str, city: str | None = None) -> Optional[object]:
-        """Nominatim structured dict search — finds house numbers reliably."""
-        street_clean = _STREET_PREFIXES.sub("", street).strip()
-        params: dict = {"street": street_clean, "country": "Ukraine"}
-        if city:
-            params["city"] = city
-        try:
-            return await loop.run_in_executor(
-                None, lambda: _geocoder.geocode(params, language="uk", addressdetails=True)
-            )
-        except (GeocoderTimedOut, GeocoderServiceError):
-            return None
-
     candidates = []
 
     # 1) Structured dict search with city (most precise — finds house numbers)
     if city_name and street_only:
-        loc = await _try_dict(street_only, city_name)
+        loc = await _geocode_dict(street_only, city_name)
         if loc:
             candidates.append(loc)
 
