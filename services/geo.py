@@ -51,6 +51,23 @@ _STREET_PREFIXES = re.compile(
     re.IGNORECASE,
 )
 
+_HOUSE_RE = re.compile(r'\b(\d+[а-яіїєa-z]?(?:/\d+)?)\s*(?:,|$)', re.IGNORECASE)
+
+
+def _inject_housenumber(address_query: str, display: str) -> str:
+    """If user typed a house number but OSM didn't return one, inject it into display."""
+    m = _HOUSE_RE.search(address_query)
+    if not m:
+        return display
+    house = m.group(1)
+    if house in display:
+        return display
+    # Insert house number after the first comma (after street name)
+    if ", " in display:
+        street_part, rest = display.split(", ", 1)
+        return f"{street_part}, {house}, {rest}"
+    return f"{display}, {house}"
+
 
 def _detect_city(text: str) -> tuple[str | None, tuple[float, float] | None, str]:
     """
@@ -168,15 +185,19 @@ async def geocode_address_multi(
 
     # If exactly one city found — try structured dict search to get house number
     city_name, _, street_only = _detect_city(address)
-    known_city = city_name or (home_city if not unique or (unique and unique[0][3]) else None)
+    known_city = city_name or (home_city if unique and unique[0][3] else None)
     if len(unique) == 1 and known_city:
         street_q = street_only if city_name else address
         dict_loc = await _geocode_dict(street_q, known_city)
         if dict_loc and dict_loc.raw.get("address", {}).get("house_number"):
-            # Dict found a house — replace the free-text result with better one
             a = dict_loc.raw.get("address", {})
             city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or unique[0][3]
             unique[0] = (dict_loc.latitude, dict_loc.longitude, _format_address(dict_loc.raw), city)
+
+    # Inject user-typed house number if OSM didn't return one
+    if unique:
+        lat, lon, disp, city = unique[0]
+        unique[0] = (lat, lon, _inject_housenumber(address, disp), city)
 
     return unique
 
@@ -261,7 +282,9 @@ async def geocode_address(
 
     if candidates:
         loc = candidates[0]
-        return loc.latitude, loc.longitude, _format_address(loc.raw)
+        display = _format_address(loc.raw)
+        display = _inject_housenumber(address, display)
+        return loc.latitude, loc.longitude, display
 
     return None
 
