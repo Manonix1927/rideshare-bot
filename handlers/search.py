@@ -47,8 +47,8 @@ async def _find_nearby(
         .options(selectinload(Trip.user))
         .where(
             Trip.role == role,
-            # Drivers: include MATCHING (may still have remaining seats)
-            Trip.status.in_(["ACTIVE", "MATCHING"]),
+            # Include MATCHING and BOARDING — driver may still have seats
+            Trip.status.in_(["ACTIVE", "MATCHING", "BOARDING"]),
             Trip.user_id != exclude_user_id,
             Trip.from_lat.between(min_lat, max_lat),
             Trip.from_lon.between(min_lon, max_lon),
@@ -303,7 +303,7 @@ async def new_trip_from_search(callback: CallbackQuery, state: FSMContext, sessi
     active_count = await session.scalar(
         select(_func.count()).select_from(Trip).where(
             Trip.user_id == user_id,
-            Trip.status.in_(["ACTIVE", "MATCHING"]),
+            Trip.status.in_(["ACTIVE", "MATCHING", "BOARDING"]),
         )
     )
     if active_count and active_count >= 3:

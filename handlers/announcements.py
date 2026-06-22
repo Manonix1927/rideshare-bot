@@ -5,8 +5,8 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from database.models import Trip, User, Match
-from keyboards.keyboards import offer_trip_kb, confirm_send_offer_kb, main_menu_kb
-from services.matching import create_match
+from keyboards.keyboards import offer_trip_kb, confirm_send_offer_kb, seats_picker_kb, main_menu_kb
+from services.matching import create_match, get_remaining_seats
 from services.notifications import notify_new_match
 from services.rich_cards import send_trip_card
 
@@ -139,12 +139,15 @@ async def back_to_announcements(callback: CallbackQuery, session: AsyncSession) 
     await callback.answer()
 
 
+ACTIVE_STATUSES = ("ACTIVE", "MATCHING", "BOARDING")
+
+
 @router.callback_query(F.data.startswith("offer_trip:"))
 async def offer_trip_start(callback: CallbackQuery, session: AsyncSession) -> None:
     trip_id = int(callback.data.split(":")[1])
     trip = await session.get(Trip, trip_id, options=[selectinload(Trip.user)])
 
-    if not trip or trip.status not in ("ACTIVE", "MATCHING"):
+    if not trip or trip.status not in ACTIVE_STATUSES:
         await callback.answer("Це оголошення вже неактуальне.", show_alert=True)
         return
 
@@ -152,6 +155,21 @@ async def offer_trip_start(callback: CallbackQuery, session: AsyncSession) -> No
         await callback.answer("Це ваше власне оголошення.", show_alert=True)
         return
 
+    # For driver trips: ask how many seats the passenger needs
+    if trip.role == "driver":
+        remaining = await get_remaining_seats(trip, session)
+        if remaining <= 0:
+            await callback.answer("На жаль, всі місця вже заброньовано.", show_alert=True)
+            return
+        await callback.message.answer(
+            f"💺 Скільки місць вам потрібно?\n"
+            f"(доступно: {remaining})",
+            reply_markup=seats_picker_kb(trip_id, remaining),
+        )
+        await callback.answer()
+        return
+
+    # For passenger trips (driver offering) — go straight to confirmation
     await send_trip_card(
         bot=callback.bot,
         chat_id=callback.message.chat.id,
@@ -163,28 +181,70 @@ async def offer_trip_start(callback: CallbackQuery, session: AsyncSession) -> No
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("offer_yes:"))
-async def offer_yes(callback: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
-    trip_id = int(callback.data.split(":")[1])
-    target_trip = await session.get(Trip, trip_id, options=[selectinload(Trip.user)])
+@router.callback_query(F.data == "offer_seats_cancel")
+async def offer_seats_cancel(callback: CallbackQuery) -> None:
+    await callback.message.delete()
+    await callback.answer("Скасовано.")
 
-    if not target_trip or target_trip.status not in ("ACTIVE", "MATCHING"):
+
+@router.callback_query(F.data.startswith("offer_seats:"))
+async def offer_seats_chosen(callback: CallbackQuery, session: AsyncSession) -> None:
+    """Passenger selected seat count → show trip card for confirmation."""
+    _, trip_id_str, seats_str = callback.data.split(":")
+    trip_id, seats = int(trip_id_str), int(seats_str)
+    trip = await session.get(Trip, trip_id, options=[selectinload(Trip.user)])
+
+    if not trip or trip.status not in ACTIVE_STATUSES:
         await callback.answer("Оголошення вже неактуальне.", show_alert=True)
         return
 
-    # Find the initiator's active trip of opposite role
+    remaining = await get_remaining_seats(trip, session)
+    if seats > remaining:
+        await callback.answer(
+            f"Доступно лише {remaining} місць. Оберіть меншу кількість.",
+            show_alert=True,
+        )
+        return
+
+    await callback.message.edit_text(
+        f"✅ Обрано: {seats} місць\n\nПідтвердіть відправку пропозиції:",
+        reply_markup=confirm_send_offer_kb(trip_id, seats=seats),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("offer_yes:"))
+async def offer_yes(callback: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
+    parts = callback.data.split(":")
+    trip_id = int(parts[1])
+    seats_wanted = int(parts[2]) if len(parts) > 2 else 1
+
+    target_trip = await session.get(Trip, trip_id, options=[selectinload(Trip.user)])
+
+    if not target_trip or target_trip.status not in ACTIVE_STATUSES:
+        await callback.answer("Оголошення вже неактуальне.", show_alert=True)
+        return
+
+    # Double-check remaining seats before creating match
+    if target_trip.role == "driver":
+        remaining = await get_remaining_seats(target_trip, session)
+        if seats_wanted > remaining:
+            await callback.answer(
+                f"Залишилось лише {remaining} місць.", show_alert=True
+            )
+            return
+
     initiator_role = "driver" if target_trip.role == "passenger" else "passenger"
     result = await session.execute(
         select(Trip).where(
             Trip.user_id == callback.from_user.id,
             Trip.role == initiator_role,
-            Trip.status.in_(["ACTIVE", "MATCHING"]),
+            Trip.status.in_(list(ACTIVE_STATUSES)),
         ).order_by(Trip.created_at.desc()).limit(1)
     )
     initiator_trip = result.scalars().first()
 
-    # No existing trip → auto-create one mirroring the target route so the user
-    # doesn't need to go through the full creation flow just to send one offer.
+    # Auto-create shadow trip with the correct seat count
     if not initiator_trip:
         initiator_trip = Trip(
             user_id=callback.from_user.id,
@@ -197,7 +257,7 @@ async def offer_yes(callback: CallbackQuery, session: AsyncSession, bot: Bot) ->
             to_address=target_trip.to_address,
             departure_time=target_trip.departure_time,
             price=target_trip.price,
-            seats=1,
+            seats=seats_wanted,
             status="MATCHING",
         )
         session.add(initiator_trip)
@@ -211,18 +271,15 @@ async def offer_yes(callback: CallbackQuery, session: AsyncSession, bot: Bot) ->
         await callback.answer("Пропозицію вже надіслано.", show_alert=True)
         return
 
-    # Pre-confirm the initiator's side — they already committed by sending this offer.
-    # This way the target only needs ONE tap to complete the deal.
+    # Pre-confirm initiator's side — one tap from the target is enough to close the deal
     if initiator_role == "driver":
         match.driver_confirmed = True
     else:
         match.passenger_confirmed = True
     await session.commit()
 
-    # Notify only the TARGET — initiator already sees the "надіслано" confirmation below.
-    # Use context-aware intro so the recipient understands someone found THEIR trip.
     if initiator_role == "passenger":
-        intro = "🙋 Пасажир хоче поїхати з вами по вашому маршруту!"
+        intro = f"🙋 Пасажир хоче поїхати з вами ({seats_wanted} місць)!"
     else:
         intro = "🚗 Водій хоче взяти вас попутником по своєму маршруту!"
     await notify_new_match(bot, target_trip, initiator_trip, match, intro=intro)

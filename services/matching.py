@@ -41,7 +41,7 @@ async def find_matches_for_trip(
     # have confirmed someone but still have remaining seats).
     # Drivers only search ACTIVE passengers (a passenger can't split across two drivers).
     if trip.role == "passenger":
-        status_filter = ["ACTIVE", "MATCHING"]
+        status_filter = ["ACTIVE", "MATCHING", "BOARDING"]
     else:
         status_filter = ["ACTIVE"]
 
@@ -158,7 +158,7 @@ async def confirm_match_side(
             if total_occupied >= driver_seats:
                 driver_trip.status = "CONFIRMED"   # fully booked
             else:
-                driver_trip.status = "ACTIVE"      # still has room for more passengers
+                driver_trip.status = "BOARDING"    # has passengers but still has seats
 
         # Cancel ONLY the passenger's other PENDING matches — the driver can still
         # accept other passengers in remaining seats, so leave driver's other matches.
@@ -183,7 +183,9 @@ async def confirm_match_side(
                     )
                 )
                 if not still_pending.scalars().first():
-                    other_driver_trip.status = "ACTIVE"
+                    # Restore to BOARDING if has confirmed passengers, else ACTIVE
+                    occ = await _occupied_seats(other_driver_trip.id, session)
+                    other_driver_trip.status = "BOARDING" if occ > 0 else "ACTIVE"
 
         await session.commit()
         return True
@@ -205,7 +207,7 @@ async def reject_match(
     if passenger_trip and passenger_trip.status == "MATCHING":
         passenger_trip.status = "ACTIVE"
 
-    # Restore driver trip to ACTIVE only if they have no other pending matches
+    # Restore driver trip to ACTIVE/BOARDING only if they have no other pending matches
     if driver_trip and driver_trip.status == "MATCHING":
         still_pending = await session.execute(
             select(Match).where(
@@ -215,7 +217,8 @@ async def reject_match(
             )
         )
         if not still_pending.scalars().first():
-            driver_trip.status = "ACTIVE"
+            occ = await _occupied_seats(driver_trip.id, session)
+            driver_trip.status = "BOARDING" if occ > 0 else "ACTIVE"
 
     await session.commit()
 

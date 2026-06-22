@@ -52,7 +52,7 @@ def _trip_map_kb(trip: Trip) -> object:
 
 async def _count_active(session: AsyncSession) -> tuple[int, int]:
     drivers = (await session.execute(
-        select(func.count()).where(Trip.role == "driver", Trip.status.in_(["ACTIVE", "MATCHING"]))
+        select(func.count()).where(Trip.role == "driver", Trip.status.in_(["ACTIVE", "MATCHING", "BOARDING"]))
     )).scalar() or 0
     passengers = (await session.execute(
         select(func.count()).where(Trip.role == "passenger", Trip.status.in_(["ACTIVE", "MATCHING"]))
@@ -82,7 +82,7 @@ async def all_trips_page(callback: CallbackQuery, session: AsyncSession) -> None
     result = await session.execute(
         select(Trip)
         .options(selectinload(Trip.user))
-        .where(Trip.role == role, Trip.status.in_(["ACTIVE", "MATCHING"]))
+        .where(Trip.role == role, Trip.status.in_(["ACTIVE", "MATCHING", "BOARDING"]))
         .order_by(Trip.departure_time.asc())
     )
     trips = result.scalars().all()

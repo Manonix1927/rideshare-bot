@@ -43,6 +43,7 @@ def _trip_card(trip: Trip, show_id: bool = True) -> str:
     status_map = {
         "ACTIVE": "🟢 Активна",
         "MATCHING": "🔄 Знайдено збіг",
+        "BOARDING": "🟡 Набір пасажирів",
         "CONFIRMED": "✅ Підтверджено",
         "CLOSED": "⛔ Закрита",
     }
@@ -81,7 +82,7 @@ async def my_trips(message: Message, session: AsyncSession) -> None:
     )
     trips = result.scalars().all()
 
-    active    = sum(1 for t in trips if t.status in ("ACTIVE", "MATCHING"))
+    active    = sum(1 for t in trips if t.status in ("ACTIVE", "MATCHING", "BOARDING"))
     confirmed = sum(1 for t in trips if t.status == "CONFIRMED")
     closed    = sum(1 for t in trips if t.status in ("CLOSED", "CANCELLED"))
 
@@ -101,7 +102,7 @@ async def my_active_trips(callback: CallbackQuery, session: AsyncSession) -> Non
         )
         .where(
             Trip.user_id == callback.from_user.id,
-            Trip.status.in_(["ACTIVE", "MATCHING"]),
+            Trip.status.in_(["ACTIVE", "MATCHING", "BOARDING"]),
         ).order_by(Trip.departure_time.asc())
     )
     trips = result.scalars().all()
@@ -566,7 +567,7 @@ async def cancel_confirmed_reason(callback: CallbackQuery, session: AsyncSession
         await callback.answer("Ви не є учасником цієї поїздки.", show_alert=True)
         return
 
-    # Canceller's trip → CLOSED; partner's trip → ACTIVE (they're still looking)
+    # Canceller's trip → CLOSED; partner's trip back to searching
     match.status = "REJECTED"
     match.rejection_reason = f"Скасовано учасником: {reason_text}"
     if driver_trip.user_id == user_id:
@@ -577,7 +578,10 @@ async def cancel_confirmed_reason(callback: CallbackQuery, session: AsyncSession
     else:
         canceller_role = "Пасажир"
         passenger_trip.status = "CLOSED"
-        driver_trip.status = "ACTIVE"
+        # Driver may still have other confirmed passengers → BOARDING, else ACTIVE
+        from services.matching import _occupied_seats
+        occ = await _occupied_seats(driver_trip.id, session)
+        driver_trip.status = "BOARDING" if occ > 0 else "ACTIVE"
         partner_id = driver_trip.user_id
     await session.commit()
 

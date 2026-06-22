@@ -106,10 +106,10 @@ def confirm_address_kb(role: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def confirm_send_offer_kb(trip_id: int) -> InlineKeyboardMarkup:
+def confirm_send_offer_kb(trip_id: int, seats: int = 1) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="✅ Так", callback_data=f"offer_yes:{trip_id}"),
+        InlineKeyboardButton(text="✅ Так", callback_data=f"offer_yes:{trip_id}:{seats}"),
         InlineKeyboardButton(text="❌ Ні", callback_data="offer_no"),
     )
     return builder.as_markup()
@@ -121,6 +121,20 @@ def trip_offer_response_kb(match_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="✅ Підтвердити", callback_data=f"match_confirm:{match_id}"),
         InlineKeyboardButton(text="❌ Відмовитися", callback_data=f"match_reject:{match_id}"),
     )
+    return builder.as_markup()
+
+
+def seats_picker_kb(trip_id: int, max_seats: int) -> InlineKeyboardMarkup:
+    """Ask passenger how many seats they need before sending an offer."""
+    builder = InlineKeyboardBuilder()
+    buttons = [
+        InlineKeyboardButton(
+            text=str(n), callback_data=f"offer_seats:{trip_id}:{n}"
+        )
+        for n in range(1, max_seats + 1)
+    ]
+    builder.row(*buttons)
+    builder.row(InlineKeyboardButton(text="◀️ Скасувати", callback_data="offer_seats_cancel"))
     return builder.as_markup()
 
 
