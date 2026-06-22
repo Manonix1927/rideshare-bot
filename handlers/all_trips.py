@@ -126,7 +126,7 @@ async def all_trips_page(callback: CallbackQuery, session: AsyncSession) -> None
             dist_km=None,
             reply_markup=_trip_map_kb(trip),
             remaining_seats=remaining,
-            extra_text=f"📊 {status_label}",
+            status_label=status_label,
         )
 
     nav = InlineKeyboardBuilder()

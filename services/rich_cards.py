@@ -29,6 +29,7 @@ def trip_card_html(
     user: "User",
     dist_km: float | None = None,
     remaining_seats: int | None = None,
+    status_label: str | None = None,
 ) -> str:
     role_emoji = "🚗" if trip.role == "driver" else "🙋"
     role_label = "Водій" if trip.role == "driver" else "Пасажир"
@@ -48,6 +49,7 @@ def trip_card_html(
     to_addr = ", ".join(trip.to_address.split(",")[:2]).strip()
 
     dist_row = f"<tr><th>📍 Відстань</th><td>{dist_km:.1f} км від вас</td></tr>" if dist_km is not None else ""
+    status_row = f"<tr><th>📊 Статус</th><td>{_esc(status_label)}</td></tr>" if status_label else ""
 
     return (
         f"<h2>{role_emoji} {_esc(role_label)}</h2>"
@@ -59,6 +61,7 @@ def trip_card_html(
         f"<tr><th>{_esc(seats_header)}</th><td>{_esc(seats_label)}</td></tr>"
         f"<tr><th>⭐ Рейтинг</th><td>{_esc(fmt_rating(user.rating))}</td></tr>"
         f"{dist_row}"
+        f"{status_row}"
         f"</table>"
     )
 
@@ -68,6 +71,7 @@ def trip_card_plain(
     user: "User",
     dist_km: float | None = None,
     remaining_seats: int | None = None,
+    status_label: str | None = None,
 ) -> str:
     role_emoji = "🚗" if trip.role == "driver" else "🙋"
     price_str = f"{trip.price:.0f} грн" if trip.role == "driver" else f"до {trip.price:.0f} грн"
@@ -82,10 +86,11 @@ def trip_card_plain(
     from_addr = ", ".join(trip.from_address.split(",")[:2]).strip()
     to_addr = ", ".join(trip.to_address.split(",")[:2]).strip()
     dist_part = f"  📍 {dist_km:.1f} км" if dist_km is not None else ""
+    status_part = f"\n📊 {status_label}" if status_label else ""
     return (
         f"{role_emoji} {from_addr} → {to_addr}\n"
         f"🕒 {trip.departure_time.strftime('%d.%m %H:%M')}  💰 {price_str}  {seats_str}\n"
-        f"⭐ {fmt_rating(user.rating)}{dist_part}"
+        f"⭐ {fmt_rating(user.rating)}{dist_part}{status_part}"
     )
 
 
@@ -98,8 +103,9 @@ async def send_trip_card(
     reply_markup: InlineKeyboardMarkup | None = None,
     extra_text: str = "",
     remaining_seats: int | None = None,
+    status_label: str | None = None,
 ) -> None:
-    rich_html = trip_card_html(trip, user, dist_km, remaining_seats)
+    rich_html = trip_card_html(trip, user, dist_km, remaining_seats, status_label)
     if extra_text:
         rich_html += f"<p><i>{_esc(extra_text)}</i></p>"
 
@@ -110,7 +116,7 @@ async def send_trip_card(
             reply_markup=reply_markup,
         )
     except Exception:
-        plain = trip_card_plain(trip, user, dist_km, remaining_seats)
+        plain = trip_card_plain(trip, user, dist_km, remaining_seats, status_label)
         if extra_text:
             plain += f"\n<i>{extra_text}</i>"
         await bot.send_message(
