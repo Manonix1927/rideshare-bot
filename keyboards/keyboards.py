@@ -111,6 +111,21 @@ def addr_not_found_kb() -> InlineKeyboardMarkup | None:
     return builder.as_markup()
 
 
+def confirm_with_map_kb(lat: float, lon: float) -> ReplyKeyboardMarkup:
+    """Reply keyboard shown after geocoding succeeds.
+    Reply keyboard buttons can call tg.sendData() — inline buttons cannot."""
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text="✅ Адреса правильна"))
+    if WEBAPP_URL:
+        map_url = f"{WEBAPP_URL}/?mode=pick&lat={lat:.6f}&lon={lon:.6f}"
+        builder.row(KeyboardButton(text="🗺 Уточнити на карті", web_app=WebAppInfo(url=map_url)))
+    builder.row(
+        KeyboardButton(text="🔄 Ввести інший"),
+        KeyboardButton(text="🔙 Головне меню"),
+    )
+    return builder.as_markup(resize_keyboard=True)
+
+
 def confirm_address_kb(role: str, field: str, lat: float, lon: float) -> InlineKeyboardMarkup:
     """
     Confirmation keyboard for a geocoded address.
