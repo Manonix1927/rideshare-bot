@@ -198,13 +198,13 @@ def trip_finished_kb(match_id: int, role: str) -> InlineKeyboardMarkup:
 
 def rating_kb(match_id: int, to_user_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    stars = ["1 ⭐", "2 ⭐", "3 ⭐", "4 ⭐", "5 ⭐"]
+    stars = ["⭐", "⭐⭐", "⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐⭐"]
     for i, star in enumerate(stars, 1):
         builder.button(
             text=star,
             callback_data=f"rate:{match_id}:{to_user_id}:{i}",
         )
-    builder.adjust(5)
+    builder.adjust(3, 2)
     return builder.as_markup()
 
 
