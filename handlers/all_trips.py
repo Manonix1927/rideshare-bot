@@ -33,6 +33,18 @@ def _all_trips_menu_kb(drivers: int, passengers: int) -> object:
     return builder.as_markup()
 
 
+VISIBLE_STATUSES = ["ACTIVE", "MATCHING", "BOARDING", "CONFIRMED", "IN_PROGRESS"]
+OFFERABLE_STATUSES = {"ACTIVE", "MATCHING", "BOARDING"}
+
+STATUS_LABELS = {
+    "ACTIVE":      "🟢 Активна",
+    "MATCHING":    "🔄 Знайдено збіг",
+    "BOARDING":    "🟡 Набір пасажирів",
+    "CONFIRMED":   "✅ Підтверджено",
+    "IN_PROGRESS": "🚗 В процесі виконання",
+}
+
+
 def _trip_map_kb(trip: Trip) -> object:
     builder = InlineKeyboardBuilder()
     if WEBAPP_URL:
@@ -46,16 +58,17 @@ def _trip_map_kb(trip: Trip) -> object:
             f"&price={trip.price:.0f}&seats={trip.seats}&role={trip.role}"
         )
         builder.row(InlineKeyboardButton(text="🗺 Маршрут на карті", web_app=WebAppInfo(url=url)))
-    builder.row(InlineKeyboardButton(text="👉 Запропонувати поїздку", callback_data=f"offer_trip:{trip.id}"))
+    if trip.status in OFFERABLE_STATUSES:
+        builder.row(InlineKeyboardButton(text="👉 Запропонувати поїздку", callback_data=f"offer_trip:{trip.id}"))
     return builder.as_markup()
 
 
-async def _count_active(session: AsyncSession) -> tuple[int, int]:
+async def _count_visible(session: AsyncSession) -> tuple[int, int]:
     drivers = (await session.execute(
-        select(func.count()).where(Trip.role == "driver", Trip.status.in_(["ACTIVE", "MATCHING", "BOARDING"]))
+        select(func.count()).where(Trip.role == "driver", Trip.status.in_(VISIBLE_STATUSES))
     )).scalar() or 0
     passengers = (await session.execute(
-        select(func.count()).where(Trip.role == "passenger", Trip.status.in_(["ACTIVE", "MATCHING"]))
+        select(func.count()).where(Trip.role == "passenger", Trip.status.in_(VISIBLE_STATUSES))
     )).scalar() or 0
     return drivers, passengers
 
@@ -64,7 +77,7 @@ async def _count_active(session: AsyncSession) -> tuple[int, int]:
 
 @router.message(F.text.func(lambda t: t == _s.get("btn_all_trips")))
 async def all_trips_menu(message: Message, session: AsyncSession) -> None:
-    drivers, passengers = await _count_active(session)
+    drivers, passengers = await _count_visible(session)
     await message.answer(
         "🗺 <b>Всі поїздки</b>\n\nОберіть категорію:",
         parse_mode="HTML",
@@ -82,7 +95,7 @@ async def all_trips_page(callback: CallbackQuery, session: AsyncSession) -> None
     result = await session.execute(
         select(Trip)
         .options(selectinload(Trip.user))
-        .where(Trip.role == role, Trip.status.in_(["ACTIVE", "MATCHING", "BOARDING"]))
+        .where(Trip.role == role, Trip.status.in_(VISIBLE_STATUSES))
         .order_by(Trip.departure_time.asc())
     )
     trips = result.scalars().all()
@@ -104,6 +117,7 @@ async def all_trips_page(callback: CallbackQuery, session: AsyncSession) -> None
 
     for trip in page_items:
         remaining = await get_remaining_seats(trip, session) if trip.role == "driver" else None
+        status_label = STATUS_LABELS.get(trip.status, trip.status)
         await send_trip_card(
             bot=callback.bot,
             chat_id=callback.message.chat.id,
@@ -112,6 +126,7 @@ async def all_trips_page(callback: CallbackQuery, session: AsyncSession) -> None
             dist_km=None,
             reply_markup=_trip_map_kb(trip),
             remaining_seats=remaining,
+            extra_text=f"📊 {status_label}",
         )
 
     nav = InlineKeyboardBuilder()
@@ -132,7 +147,7 @@ async def all_trips_page(callback: CallbackQuery, session: AsyncSession) -> None
 
 @router.callback_query(F.data == "all:back")
 async def all_trips_back(callback: CallbackQuery, session: AsyncSession) -> None:
-    drivers, passengers = await _count_active(session)
+    drivers, passengers = await _count_visible(session)
     await callback.message.answer(
         "🗺 <b>Всі поїздки</b>\n\nОберіть категорію:",
         parse_mode="HTML",
