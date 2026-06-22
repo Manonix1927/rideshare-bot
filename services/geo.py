@@ -168,7 +168,16 @@ async def geocode_address_multi(
             None, lambda: _geocoder.geocode(address, **kwargs)
         ) or []
     except (GeocoderTimedOut, GeocoderServiceError):
-        return []
+        results = []
+
+    # Retry with "вулиця " prefix if bare genitive form wasn't found
+    if not results:
+        try:
+            results = await loop.run_in_executor(
+                None, lambda: _geocoder.geocode("вулиця " + address, **kwargs)
+            ) or []
+        except (GeocoderTimedOut, GeocoderServiceError):
+            results = []
 
     if not isinstance(results, list):
         results = [results]
@@ -193,6 +202,16 @@ async def geocode_address_multi(
             a = dict_loc.raw.get("address", {})
             city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or unique[0][3]
             unique[0] = (dict_loc.latitude, dict_loc.longitude, _format_address(dict_loc.raw), city)
+
+    # Last resort: structured dict search with home_city when free-text failed completely
+    if not unique and home_city:
+        dict_loc = await _geocode_dict(address, home_city)
+        if not dict_loc:
+            dict_loc = await _geocode_dict("вулиця " + address, home_city)
+        if dict_loc:
+            a = dict_loc.raw.get("address", {})
+            city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or home_city
+            unique.append((dict_loc.latitude, dict_loc.longitude, _format_address(dict_loc.raw), city))
 
     # Inject user-typed house number if OSM didn't return one
     if unique:
@@ -262,21 +281,33 @@ async def geocode_address(
         if loc:
             candidates.append(loc)
 
-    # 3) Free-text biased (not bounded) — viewbox is a hint
+    # 3) Free-text with "вулиця " prefix inside viewbox — handles bare genitive street names
+    if viewbox and not candidates:
+        loc = await _try("вулиця " + address, viewbox, bounded=True)
+        if loc:
+            candidates.append(loc)
+
+    # 4) Free-text biased (not bounded) — viewbox is a hint
     if viewbox and not candidates:
         loc = await _try(address, viewbox, bounded=False)
         if loc:
             candidates.append(loc)
 
-    # 4) If city detected but street_only search failed — try full query biased toward city
-    if city_coords and not candidates:
-        loc = await _try(address, viewbox, bounded=False)
+    # 5) Free-text with "вулиця " prefix, biased
+    if viewbox and not candidates:
+        loc = await _try("вулиця " + address, viewbox, bounded=False)
         if loc:
             candidates.append(loc)
 
-    # 5) Country-wide free-text fallback (Nominatim ranks major cities higher)
+    # 6) Country-wide free-text fallback (Nominatim ranks major cities higher)
     if not candidates:
         loc = await _try(address, None, False)
+        if loc:
+            candidates.append(loc)
+
+    # 7) Country-wide with "вулиця " prefix
+    if not candidates:
+        loc = await _try("вулиця " + address, None, False)
         if loc:
             candidates.append(loc)
 
