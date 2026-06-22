@@ -119,20 +119,22 @@ def _detect_city(text: str) -> tuple[str | None, tuple[float, float] | None, str
 def _format_address(raw: dict) -> str:
     """
     Format Nominatim raw address dict into a short human-readable string.
-    Result: "вул. Хрещатик, 22, Київ"  or  "вул. Хрещатик, 22, Шевченківський р-н, Київ"
+    Result: "вул. Хрещатик, 22, Київ"  or  "Контрактова площа, Київ"
     """
     a = raw.get("address", {}) if "address" in raw else raw
 
-    road        = a.get("road") or a.get("pedestrian") or a.get("footway") or ""
-    house       = a.get("house_number", "")
-    district    = a.get("city_district") or a.get("suburb") or ""
-    city        = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or ""
+    # "square" and "place" cover OSM-tagged plazas (e.g. Контрактова площа)
+    road     = (a.get("road") or a.get("pedestrian") or a.get("footway")
+                or a.get("square") or a.get("place") or "")
+    house    = a.get("house_number", "")
+    district = a.get("city_district") or a.get("suburb") or ""
+    city     = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or ""
 
     parts = []
     if road:
         parts.append(f"{road}, {house}".rstrip(", ") if house else road)
     if district and not road:
-        # No street info — show district so address isn't just "Київ"
+        # No street — show district so address isn't just "Київ"
         parts.append(district)
     if city:
         parts.append(city)
@@ -316,10 +318,16 @@ async def geocode_address_multi(
     for loc in results:
         a = loc.raw.get("address", {})
         city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or ""
-        if not city or city in seen_cities:
+        formatted = _format_address(loc.raw)
+        # Skip if no usable address (city-only with no road/district is too vague)
+        if not formatted or formatted == "Невідома адреса":
             continue
-        seen_cities.add(city)
-        unique.append((loc.latitude, loc.longitude, _format_address(loc.raw), city))
+        # Skip duplicate cities, but allow results without city field if address has street info
+        dedup_key = city or formatted
+        if dedup_key in seen_cities:
+            continue
+        seen_cities.add(dedup_key)
+        unique.append((loc.latitude, loc.longitude, formatted, city))
 
     # If exactly one city found — try structured dict search to get house number
     city_name, _, street_only = _detect_city(address)
