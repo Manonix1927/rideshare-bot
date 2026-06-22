@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from database.models import Trip
 from keyboards.keyboards import main_menu_kb, geo_or_text_kb
 from services.rich_cards import send_trip_card
+from services.matching import get_remaining_seats
 from services import bot_settings as _s
 from states.states import SearchStates
 from config import WEBAPP_URL
@@ -102,6 +103,7 @@ async def all_trips_page(callback: CallbackQuery, session: AsyncSession) -> None
     )
 
     for trip in page_items:
+        remaining = await get_remaining_seats(trip, session) if trip.role == "driver" else None
         await send_trip_card(
             bot=callback.bot,
             chat_id=callback.message.chat.id,
@@ -109,6 +111,7 @@ async def all_trips_page(callback: CallbackQuery, session: AsyncSession) -> None
             user=trip.user,
             dist_km=None,
             reply_markup=_trip_map_kb(trip),
+            remaining_seats=remaining,
         )
 
     nav = InlineKeyboardBuilder()

@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from database.models import Trip, Match, User
+from services.matching import get_remaining_seats
 from keyboards.keyboards import (
     my_trips_menu_kb,
     active_trip_actions_kb,
@@ -57,6 +58,21 @@ def _trip_card(trip: Trip, show_id: bool = True) -> str:
     )
 
 
+def _confirmed_passengers_kb(confirmed_matches: list[Match]) -> object:
+    """Inline keyboard listing each confirmed passenger with contact + close buttons."""
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+    builder = InlineKeyboardBuilder()
+    for m in confirmed_matches:
+        pax = m.passenger_trip.user if m.passenger_trip else None
+        name = pax.first_name if pax else "Пасажир"
+        builder.row(
+            InlineKeyboardButton(text=f"📞 {name}", callback_data=f"show_contact:{m.id}"),
+            InlineKeyboardButton(text="🏁 Завершити", callback_data=f"manual_close:{m.id}"),
+        )
+    return builder.as_markup()
+
+
 @router.message(F.text.func(lambda t: t == _s.get("btn_mytrips")))
 async def my_trips(message: Message, session: AsyncSession) -> None:
     result = await session.execute(
@@ -79,7 +95,11 @@ async def my_trips(message: Message, session: AsyncSession) -> None:
 @router.callback_query(F.data == "mytrips:active")
 async def my_active_trips(callback: CallbackQuery, session: AsyncSession) -> None:
     result = await session.execute(
-        select(Trip).where(
+        select(Trip)
+        .options(
+            selectinload(Trip.driver_matches).selectinload(Match.passenger_trip).selectinload(Trip.user),
+        )
+        .where(
             Trip.user_id == callback.from_user.id,
             Trip.status.in_(["ACTIVE", "MATCHING"]),
         ).order_by(Trip.departure_time.asc())
@@ -92,11 +112,25 @@ async def my_active_trips(callback: CallbackQuery, session: AsyncSession) -> Non
 
     await callback.message.answer("🟢 <b>Активні поїздки:</b>", parse_mode="HTML")
     for trip in trips:
-        card = _trip_card(trip)
-        # Show map button if webapp is configured
+        # Build remaining-seats label for drivers
+        remaining = None
+        if trip.role == "driver":
+            remaining = await get_remaining_seats(trip, session)
+            total = trip.seats or 1
+            seats_extra = f"\n💺 Вільних місць: {remaining}/{total}"
+        else:
+            seats_extra = ""
+
+        card = _trip_card(trip) + seats_extra
+
+        import urllib.parse
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton, WebAppInfo
+
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text="✏️ Редагувати", callback_data=f"trip_edit:{trip.id}"))
+        builder.row(InlineKeyboardButton(text="🗑 Видалити", callback_data=f"trip_delete:{trip.id}"))
         if WEBAPP_URL:
-            from keyboards.keyboards import map_view_kb
-            import urllib.parse
             base = WEBAPP_URL.rstrip("/")
             url = (
                 f"{base}/?mode=single"
@@ -105,21 +139,22 @@ async def my_active_trips(callback: CallbackQuery, session: AsyncSession) -> Non
                 f"&from_addr={urllib.parse.quote(trip.from_address)}"
                 f"&to_addr={urllib.parse.quote(trip.to_address)}"
                 f"&time={urllib.parse.quote(trip.departure_time.strftime('%d.%m.%Y %H:%M'))}"
-                f"&price={trip.price:.0f}"
-                f"&seats={trip.seats}"
-                f"&role={trip.role}"
+                f"&price={trip.price:.0f}&seats={trip.seats}&role={trip.role}"
             )
-            from aiogram.utils.keyboard import InlineKeyboardBuilder
-            from aiogram.types import InlineKeyboardButton, WebAppInfo
-            builder = InlineKeyboardBuilder()
-            builder.row(InlineKeyboardButton(text="✏️ Редагувати", callback_data=f"trip_edit:{trip.id}"))
-            builder.row(InlineKeyboardButton(text="🗑 Видалити", callback_data=f"trip_delete:{trip.id}"))
             builder.row(InlineKeyboardButton(text="🗺 Переглянути на карті", web_app=WebAppInfo(url=url)))
-            await callback.message.answer(card, parse_mode="HTML", reply_markup=builder.as_markup())
-        else:
-            await callback.message.answer(
-                card, parse_mode="HTML", reply_markup=active_trip_actions_kb(trip.id)
-            )
+
+        await callback.message.answer(card, parse_mode="HTML", reply_markup=builder.as_markup())
+
+        # Show confirmed passengers for this driver trip (multi-passenger)
+        if trip.role == "driver":
+            confirmed = [m for m in trip.driver_matches if m.status == "CONFIRMED"]
+            if confirmed:
+                await callback.message.answer(
+                    f"👥 <b>Підтверджені пасажири ({len(confirmed)}):</b>",
+                    parse_mode="HTML",
+                    reply_markup=_confirmed_passengers_kb(confirmed),
+                )
+
     await callback.answer()
 
 

@@ -15,6 +15,7 @@ from database.models import Trip, User
 from keyboards.keyboards import geo_or_text_kb, main_menu_kb
 from services.geo import geocode_address, reverse_geocode, haversine_km, _UA_CITIES
 from services.rich_cards import send_trip_card, fmt_rating
+from services.matching import get_remaining_seats
 from services import bot_settings as _s
 from states.states import SearchStates
 from config import WEBAPP_URL
@@ -37,7 +38,8 @@ async def _find_nearby(
     lon: float,
     role: str,
     exclude_user_id: int,
-) -> list[tuple[Trip, float]]:
+) -> list[tuple[Trip, float, int | None]]:
+    """Returns list of (trip, distance_km, remaining_seats_or_None)."""
     min_lat, max_lat, min_lon, max_lon = _bbox(lat, lon, SEARCH_RADIUS_KM)
 
     result = await session.execute(
@@ -45,6 +47,7 @@ async def _find_nearby(
         .options(selectinload(Trip.user))
         .where(
             Trip.role == role,
+            # Drivers: include MATCHING (may still have remaining seats)
             Trip.status.in_(["ACTIVE", "MATCHING"]),
             Trip.user_id != exclude_user_id,
             Trip.from_lat.between(min_lat, max_lat),
@@ -54,11 +57,19 @@ async def _find_nearby(
     )
     trips = result.scalars().all()
 
-    nearby = [
-        (t, haversine_km(lat, lon, t.from_lat, t.from_lon))
-        for t in trips
-        if haversine_km(lat, lon, t.from_lat, t.from_lon) <= SEARCH_RADIUS_KM
-    ]
+    nearby = []
+    for t in trips:
+        dist = haversine_km(lat, lon, t.from_lat, t.from_lon)
+        if dist > SEARCH_RADIUS_KM:
+            continue
+        if role == "driver":
+            remaining = await get_remaining_seats(t, session)
+            if remaining <= 0:
+                continue  # fully booked
+        else:
+            remaining = None
+        nearby.append((t, dist, remaining))
+
     nearby.sort(key=lambda x: x[1])
     return nearby
 
@@ -229,7 +240,7 @@ async def search_results_page(callback: CallbackQuery, session: AsyncSession) ->
         parse_mode="HTML",
     )
 
-    for trip, dist in page_items:
+    for trip, dist, remaining in page_items:
         await send_trip_card(
             bot=callback.bot,
             chat_id=callback.message.chat.id,
@@ -237,6 +248,7 @@ async def search_results_page(callback: CallbackQuery, session: AsyncSession) ->
             user=trip.user,
             dist_km=dist,
             reply_markup=_map_kb(trip),
+            remaining_seats=remaining,
         )
 
     # Pagination nav
