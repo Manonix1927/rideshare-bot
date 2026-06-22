@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from database.models import Trip, User
-from keyboards.keyboards import geo_or_text_kb, dest_kb, cancel_kb, main_menu_kb, confirm_address_kb, city_picker_kb, date_picker_kb, time_picker_kb, passengers_count_kb
+from keyboards.keyboards import geo_or_text_kb, dest_kb, cancel_kb, main_menu_kb, confirm_address_kb, addr_not_found_kb, city_picker_kb, date_picker_kb, time_picker_kb, passengers_count_kb
 from services.geo import geocode_address, geocode_address_multi, reverse_geocode, get_city_from_coords, _detect_city
 from services.matching import find_matches_for_trip, create_match
 from services.notifications import notify_new_match
@@ -91,7 +91,14 @@ async def passenger_from_text(message: Message, state: FSMContext, session: Asyn
 
     candidates = await geocode_address_multi(message.text, home_city=home_city)
     if not candidates:
-        await message.answer("❌ Не вдалося знайти адресу. Спробуйте ще раз або надішліть геолокацію.")
+        await message.answer(
+            "❌ Не вдалося знайти адресу.\n\n"
+            "💡 Спробуйте у форматі:\n"
+            "<code>Назва вулиці, номер, Місто</code>\n"
+            "<i>Наприклад: Хрещатик 22, Київ</i>",
+            parse_mode="HTML",
+            reply_markup=addr_not_found_kb(),
+        )
         return
 
     if len(candidates) > 1:
@@ -213,7 +220,14 @@ async def passenger_to_text(message: Message, state: FSMContext) -> None:
 
     candidates = await geocode_address_multi(query, near_lat=near_lat, near_lon=near_lon)
     if not candidates:
-        await message.answer("❌ Не вдалося знайти адресу. Спробуйте ще раз або надішліть геолокацію.")
+        await message.answer(
+            "❌ Не вдалося знайти адресу.\n\n"
+            "💡 Спробуйте у форматі:\n"
+            "<code>Назва вулиці, номер, Місто</code>\n"
+            "<i>Наприклад: Сагайдачного 5, Київ</i>",
+            parse_mode="HTML",
+            reply_markup=addr_not_found_kb(),
+        )
         return
 
     if len(candidates) > 1:

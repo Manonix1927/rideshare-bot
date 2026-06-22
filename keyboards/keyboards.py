@@ -97,6 +97,20 @@ def city_picker_kb(candidates: list, role: str, field: str) -> InlineKeyboardMar
     return builder.as_markup()
 
 
+def addr_not_found_kb() -> InlineKeyboardMarkup | None:
+    """Inline keyboard shown when geocoding fails — quick access to map picker."""
+    if not WEBAPP_URL:
+        return None
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="🗺 Обрати на карті",
+            web_app=WebAppInfo(url=f"{WEBAPP_URL}/?mode=pick"),
+        )
+    )
+    return builder.as_markup()
+
+
 def confirm_address_kb(role: str, field: str, lat: float, lon: float) -> InlineKeyboardMarkup:
     """
     Confirmation keyboard for a geocoded address.

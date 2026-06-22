@@ -141,18 +141,33 @@ def _format_address(raw: dict) -> str:
 
 
 async def _geocode_dict(street: str, city: str | None = None) -> Optional[object]:
-    """Nominatim structured dict search — finds house numbers reliably."""
+    """
+    Nominatim structured dict search — finds house numbers reliably.
+    Tries the full street name first (important for "Проспект Науки" where stripping
+    the prefix would leave only "Науки" and return wrong results), then the stripped form.
+    """
     loop = asyncio.get_event_loop()
     street_clean = _STREET_PREFIXES.sub("", street).strip()
-    params: dict = {"street": street_clean, "country": "Ukraine"}
-    if city:
-        params["city"] = city
-    try:
-        return await loop.run_in_executor(
-            None, lambda: _geocoder.geocode(params, language="uk", addressdetails=True)
-        )
-    except (GeocoderTimedOut, GeocoderServiceError):
-        return None
+
+    # Build query list: full name first (if it differs from stripped), then stripped
+    queries: list[str] = []
+    if street_clean.lower() != street.strip().lower():
+        queries.append(street.strip())   # "Проспект Науки" before "Науки"
+    queries.append(street_clean)          # bare genitive form "Головатого"
+
+    for q in queries:
+        params: dict = {"street": q, "country": "Ukraine"}
+        if city:
+            params["city"] = city
+        try:
+            result = await loop.run_in_executor(
+                None, lambda _p=params: _geocoder.geocode(_p, language="uk", addressdetails=True)
+            )
+            if result:
+                return result
+        except (GeocoderTimedOut, GeocoderServiceError):
+            return None
+    return None
 
 
 async def _geocode_city(city_name: str) -> tuple[float, float] | None:
@@ -234,8 +249,11 @@ async def geocode_address_multi(
     _, city_coords, _ = _detect_city(address)
 
     # Dynamic detection: "м. Бориспіль", "місто Васильків", etc.
+    # _dyn_cleaned = address without the "місто CityName" prefix (street-only part)
+    _dyn_city: str | None = None
+    _dyn_cleaned: str = address
     if not city_coords:
-        _dyn_city, _ = _extract_city_from_text(address)
+        _dyn_city, _dyn_cleaned = _extract_city_from_text(address)
         if _dyn_city:
             city_coords = await _geocode_city(_dyn_city)
 
@@ -279,6 +297,17 @@ async def geocode_address_multi(
         except (GeocoderTimedOut, GeocoderServiceError):
             results = []
 
+    # If dynamic city was extracted, retry Nominatim with the cleaned street + city
+    # e.g. "Вулиця головатого 9 місто бориспіль" → "Вулиця головатого 9, бориспіль"
+    if not results and _dyn_city and _dyn_cleaned != address:
+        _clean_q = f"{_dyn_cleaned}, {_dyn_city}"
+        try:
+            results = await loop.run_in_executor(
+                None, lambda: _geocoder.geocode(_clean_q, **kwargs)
+            ) or []
+        except (GeocoderTimedOut, GeocoderServiceError):
+            results = []
+
     if not isinstance(results, list):
         results = [results]
 
@@ -303,6 +332,19 @@ async def geocode_address_multi(
             city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or unique[0][3]
             unique[0] = (dict_loc.latitude, dict_loc.longitude, _format_address(dict_loc.raw), city)
 
+    # Structured dict search with dynamically extracted city
+    # Covers: "Вулиця головатого 9 місто Бориспіль" → street="Вулиця головатого 9", city="Бориспіль"
+    if not unique and _dyn_city and _dyn_cleaned and _dyn_cleaned != address:
+        dict_loc = await _geocode_dict(_dyn_cleaned, _dyn_city)
+        if not dict_loc:
+            dict_loc = await _geocode_dict("вулиця " + _dyn_cleaned, _dyn_city)
+        if dict_loc:
+            a = dict_loc.raw.get("address", {})
+            _c = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or _dyn_city
+            if _c not in seen_cities:
+                seen_cities.add(_c)
+                unique.append((dict_loc.latitude, dict_loc.longitude, _format_address(dict_loc.raw), _c))
+
     # Last resort: structured dict search with home_city when free-text failed completely
     if not unique and home_city:
         dict_loc = await _geocode_dict(address, home_city)
@@ -315,10 +357,13 @@ async def geocode_address_multi(
 
     # Photon fallback — fuzzy matching catches typos and abbreviations Nominatim misses
     if not unique:
-        photon_results = await _photon_geocode(address, vb_lat, vb_lon)
+        _photon_q = f"{_dyn_cleaned}, {_dyn_city}" if (_dyn_city and _dyn_cleaned != address) else address
+        photon_results = await _photon_geocode(_photon_q, vb_lat, vb_lon)
         for p_lat, p_lon, p_display, p_city in photon_results:
-            if p_city and p_city not in seen_cities:
-                seen_cities.add(p_city)
+            # Allow results even without a city field — use display as dedup key
+            dedup_key = p_city or p_display
+            if dedup_key and dedup_key not in seen_cities:
+                seen_cities.add(dedup_key)
                 unique.append((p_lat, p_lon, _inject_housenumber(address, p_display), p_city))
 
     # Inject user-typed house number if OSM didn't return one
