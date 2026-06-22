@@ -556,20 +556,20 @@ async def cancel_confirmed_reason(callback: CallbackQuery, session: AsyncSession
         await callback.answer("Ви не є учасником цієї поїздки.", show_alert=True)
         return
 
-    # Cancel the match and return both trips to ACTIVE search
+    # Canceller's trip → CLOSED; partner's trip → ACTIVE (they're still looking)
     match.status = "REJECTED"
     match.rejection_reason = f"Скасовано учасником: {reason_text}"
-    driver_trip.status = "ACTIVE"
-    passenger_trip.status = "ACTIVE"
-    await session.commit()
-
-    # Who is the other party?
     if driver_trip.user_id == user_id:
         canceller_role = "Водій"
+        driver_trip.status = "CLOSED"
+        passenger_trip.status = "ACTIVE"
         partner_id = passenger_trip.user_id
     else:
         canceller_role = "Пасажир"
+        passenger_trip.status = "CLOSED"
+        driver_trip.status = "ACTIVE"
         partner_id = driver_trip.user_id
+    await session.commit()
 
     # Notify partner
     try:
@@ -584,7 +584,6 @@ async def cancel_confirmed_reason(callback: CallbackQuery, session: AsyncSession
         pass
 
     await callback.message.edit_text(
-        f"✅ Поїздку скасовано.\n📝 Причина: {reason_text}\n\n"
-        "Ваша заявка знову активна — шукаємо нового попутника."
+        f"✅ Поїздку скасовано.\n📝 Причина: {reason_text}"
     )
     await callback.answer()
