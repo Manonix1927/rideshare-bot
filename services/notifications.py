@@ -307,8 +307,14 @@ async def _notify_timeout_cancel(match: Match, bot) -> None:
             pass
 
 
-async def notify_new_match(bot, trip: Trip, matched_trip: Trip, match: "Match") -> None:
-    """Notify one party about a potential match, with map button."""
+async def notify_new_match(
+    bot, trip: Trip, matched_trip: Trip, match: "Match", intro: str | None = None
+) -> None:
+    """Notify one party about a potential match, with map button.
+
+    ``intro`` overrides the default "Знайдено підходящий варіант!" header —
+    used for direct offers so the recipient sees context-aware wording.
+    """
     from keyboards.keyboards import trip_offer_response_kb
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
     from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -332,8 +338,9 @@ async def notify_new_match(bot, trip: Trip, matched_trip: Trip, match: "Match") 
         matched_user = await session.get(User, matched_trip.user_id)
         rating_str = (f"{matched_user.rating:.1f}" if matched_user and matched_user.rating is not None else "Без рейтингу")
 
+    header = intro or "🎉 Знайдено підходящий варіант!"
     text = (
-        f"🎉 Знайдено підходящий варіант!\n\n"
+        f"{header}\n\n"
         f"{role_emoji} <b>{role_label}</b>\n"
         f"📍 {matched_trip.from_address.split(',')[0]}\n"
         f"🏁 {matched_trip.to_address.split(',')[0]}\n"

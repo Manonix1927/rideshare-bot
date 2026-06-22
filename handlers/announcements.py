@@ -183,12 +183,25 @@ async def offer_yes(callback: CallbackQuery, session: AsyncSession, bot: Bot) ->
     )
     initiator_trip = result.scalars().first()
 
+    # No existing trip → auto-create one mirroring the target route so the user
+    # doesn't need to go through the full creation flow just to send one offer.
     if not initiator_trip:
-        await callback.answer(
-            f"Спочатку створіть {'поїздку' if initiator_role == 'driver' else 'заявку пасажира'}!",
-            show_alert=True,
+        initiator_trip = Trip(
+            user_id=callback.from_user.id,
+            role=initiator_role,
+            from_lat=target_trip.from_lat,
+            from_lon=target_trip.from_lon,
+            from_address=target_trip.from_address,
+            to_lat=target_trip.to_lat,
+            to_lon=target_trip.to_lon,
+            to_address=target_trip.to_address,
+            departure_time=target_trip.departure_time,
+            price=target_trip.price,
+            seats=1,
+            status="MATCHING",
         )
-        return
+        session.add(initiator_trip)
+        await session.flush()
 
     driver_trip = initiator_trip if initiator_role == "driver" else target_trip
     passenger_trip = target_trip if initiator_role == "driver" else initiator_trip
@@ -198,11 +211,26 @@ async def offer_yes(callback: CallbackQuery, session: AsyncSession, bot: Bot) ->
         await callback.answer("Пропозицію вже надіслано.", show_alert=True)
         return
 
-    await notify_new_match(bot, initiator_trip, target_trip, match)
-    await notify_new_match(bot, target_trip, initiator_trip, match)
+    # Pre-confirm the initiator's side — they already committed by sending this offer.
+    # This way the target only needs ONE tap to complete the deal.
+    if initiator_role == "driver":
+        match.driver_confirmed = True
+    else:
+        match.passenger_confirmed = True
+    await session.commit()
+
+    # Notify only the TARGET — initiator already sees the "надіслано" confirmation below.
+    # Use context-aware intro so the recipient understands someone found THEIR trip.
+    if initiator_role == "passenger":
+        intro = "🙋 Пасажир хоче поїхати з вами по вашому маршруту!"
+    else:
+        intro = "🚗 Водій хоче взяти вас попутником по своєму маршруту!"
+    await notify_new_match(bot, target_trip, initiator_trip, match, intro=intro)
 
     await callback.message.edit_text(
-        "✅ Пропозицію надіслано. Очікуємо відповіді."
+        "✅ Пропозицію надіслано. Очікуємо відповіді від водія."
+        if initiator_role == "passenger" else
+        "✅ Пропозицію надіслано. Очікуємо відповіді від пасажира."
     )
     await callback.answer()
 
