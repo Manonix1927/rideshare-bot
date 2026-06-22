@@ -11,9 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from database.models import Trip
+from database.models import Trip, User
 from keyboards.keyboards import geo_or_text_kb, main_menu_kb
-from services.geo import geocode_address, reverse_geocode, haversine_km
+from services.geo import geocode_address, reverse_geocode, haversine_km, _UA_CITIES
 from services.rich_cards import send_trip_card, fmt_rating
 from services import bot_settings as _s
 from states.states import SearchStates
@@ -157,7 +157,16 @@ async def search_by_text(message: Message, state: FSMContext, session: AsyncSess
         await message.answer("Головне меню:", reply_markup=main_menu_kb())
         return
 
-    result = await geocode_address(message.text)
+    # Bias geocoding to user's home city so "Івасюка, 40" finds Kyiv, not another city
+    user = await session.get(User, message.from_user.id)
+    home_city = user.home_city if user else None
+    near_lat, near_lon = None, None
+    if home_city:
+        coords = _UA_CITIES.get(home_city.lower())
+        if coords:
+            near_lat, near_lon = coords
+
+    result = await geocode_address(message.text, near_lat=near_lat, near_lon=near_lon)
     if not result:
         await message.answer("❌ Не вдалося знайти адресу. Спробуйте ще раз або надішліть геолокацію.")
         return
