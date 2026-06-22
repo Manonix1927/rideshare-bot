@@ -117,7 +117,8 @@ async def my_active_trips(callback: CallbackQuery, session: AsyncSession) -> Non
         if trip.role == "driver":
             remaining = await get_remaining_seats(trip, session)
             total = trip.seats or 1
-            seats_extra = f"\n💺 Вільних місць: {remaining}/{total}"
+            booked = total - remaining
+            seats_extra = f"\n💺 Заброньовано місць: {booked}/{total}"
         else:
             seats_extra = ""
 

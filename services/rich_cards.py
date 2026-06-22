@@ -33,13 +33,16 @@ def trip_card_html(
     role_emoji = "🚗" if trip.role == "driver" else "🙋"
     role_label = "Водій" if trip.role == "driver" else "Пасажир"
     price_label = f"{trip.price:.0f} грн" if trip.role == "driver" else f"до {trip.price:.0f} грн"
-    seats_emoji = "💺" if trip.role == "driver" else "👥"
     if trip.role == "driver" and remaining_seats is not None:
         total = trip.seats or 1
-        seats_label = f"Вільних місць: {remaining_seats}/{total}"
+        booked = total - remaining_seats
+        seats_header = "💺 Заброньовано місць"
+        seats_label = f"{booked}/{total}"
     elif trip.role == "driver":
+        seats_header = "💺 Місця"
         seats_label = f"{trip.seats} місць"
     else:
+        seats_header = "👥 Місця"
         seats_label = f"{trip.seats} пас."
     from_addr = ", ".join(trip.from_address.split(",")[:2]).strip()
     to_addr = ", ".join(trip.to_address.split(",")[:2]).strip()
@@ -53,7 +56,7 @@ def trip_card_html(
         f"<tr><th>Куди</th><td>{_esc(to_addr)}</td></tr>"
         f"<tr><th>🕒 Час</th><td>{_esc(trip.departure_time.strftime('%d.%m.%Y %H:%M'))}</td></tr>"
         f"<tr><th>💰 Ціна</th><td>{_esc(price_label)}</td></tr>"
-        f"<tr><th>{seats_emoji} Місця</th><td>{_esc(seats_label)}</td></tr>"
+        f"<tr><th>{_esc(seats_header)}</th><td>{_esc(seats_label)}</td></tr>"
         f"<tr><th>⭐ Рейтинг</th><td>{_esc(fmt_rating(user.rating))}</td></tr>"
         f"{dist_row}"
         f"</table>"
@@ -69,7 +72,9 @@ def trip_card_plain(
     role_emoji = "🚗" if trip.role == "driver" else "🙋"
     price_str = f"{trip.price:.0f} грн" if trip.role == "driver" else f"до {trip.price:.0f} грн"
     if trip.role == "driver" and remaining_seats is not None:
-        seats_str = f"💺 Вільних: {remaining_seats}/{trip.seats or 1}"
+        total = trip.seats or 1
+        booked = total - remaining_seats
+        seats_str = f"💺 Заброньовано: {booked}/{total}"
     elif trip.role == "driver":
         seats_str = f"💺 {trip.seats} місць"
     else:
