@@ -119,20 +119,20 @@ async def match_confirm(callback: CallbackQuery, session: AsyncSession, bot: Bot
             + (f" (@{passenger_user.username})" if passenger_user.username else "")
         )
 
-        track_url = build_track_url(match, driver_user.id, passenger_user.id)
-
+        # No track URL here — trip may be hours/days away.
+        # Map button appears in the 10-min reminder and after driver presses "Виїхав".
         try:
             await bot.send_message(
                 driver_user.id,
                 contact_text + passenger_contact + "\n\n" + _s.get("msg_confirmed_driver"),
                 parse_mode="HTML",
-                reply_markup=confirmed_trip_driver_kb(match.id, track_url),
+                reply_markup=confirmed_trip_driver_kb(match.id, None),
             )
             await bot.send_message(
                 passenger_user.id,
                 contact_text + driver_contact + "\n\n" + _s.get("msg_confirmed_pax"),
                 parse_mode="HTML",
-                reply_markup=confirmed_trip_passenger_kb(match.id, track_url),
+                reply_markup=confirmed_trip_passenger_kb(match.id, None),
             )
         except Exception:
             pass

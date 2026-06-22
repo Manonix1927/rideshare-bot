@@ -189,15 +189,11 @@ async def trip_cancel_back(callback: CallbackQuery, session: AsyncSession) -> No
         await callback.answer()
         return
 
-    driver_user = match.driver_trip.user
-    passenger_user = match.passenger_trip.user
-    track_url = build_track_url(match, driver_user.id, passenger_user.id)
-
     if role == "driver":
-        kb = confirmed_trip_driver_kb(match_id, track_url)
+        kb = confirmed_trip_driver_kb(match_id, None)
         text = "🚗 <b>Ваша підтверджена поїздка</b>\n\nНатисніть «Виїхав» коли вирушите до пасажира."
     else:
-        kb = confirmed_trip_passenger_kb(match_id, track_url)
+        kb = confirmed_trip_passenger_kb(match_id, None)
         text = "🙋 <b>Ваша підтверджена поїздка</b>\n\nОчікуйте повідомлення від водія."
 
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
