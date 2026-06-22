@@ -71,6 +71,23 @@ _CITY_PREFIX_RE = re.compile(
 )
 
 
+def _result_plausible(query: str, formatted: str) -> bool:
+    """Return False when geocoded address has zero lexical overlap with the query.
+
+    Uses 4-char stem matching to handle Ukrainian genitive case endings
+    (e.g. "Жмаченко" → stem "жмач" must appear in the result).
+    Skips very short words and only validates meaningful street-name tokens.
+    """
+    q = _STREET_PREFIXES.sub("", query.lower()).strip()
+    a = formatted.lower()
+    # Take words ≥4 chars (avoids matching "м.", "вул.", city prepositions)
+    words = [w for w in re.split(r'[\s,./\-]+', q) if len(w) >= 4]
+    if not words:
+        return True  # Nothing to validate — accept
+    stem_len = 4
+    return any(word[:stem_len] in a for word in words)
+
+
 def _inject_housenumber(address_query: str, display: str) -> str:
     """If user typed a house number but OSM didn't return one, inject it into display."""
     m = _HOUSE_RE.search(address_query)
@@ -319,10 +336,14 @@ async def geocode_address_multi(
         a = loc.raw.get("address", {})
         city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or ""
         formatted = _format_address(loc.raw)
-        # Skip if no usable address (city-only with no road/district is too vague)
+        # Skip empty or vague results
         if not formatted or formatted == "Невідома адреса":
             continue
-        # Skip duplicate cities, but allow results without city field if address has street info
+        # Skip results where the geocoded name has zero lexical overlap with the query
+        # (prevents Nominatim from returning geographically-close but wrong streets)
+        if not _result_plausible(address, formatted):
+            continue
+        # Dedup by city; allow city-less results if address has street info
         dedup_key = city or formatted
         if dedup_key in seen_cities:
             continue
@@ -428,9 +449,13 @@ async def geocode_address(
             kwargs["viewbox"] = vb
             kwargs["bounded"] = bounded
         try:
-            return await loop.run_in_executor(
+            loc = await loop.run_in_executor(
                 None, lambda: _geocoder.geocode(query, **kwargs)
             )
+            # Reject results with zero lexical overlap with original query
+            if loc and not _result_plausible(address, _format_address(loc.raw)):
+                return None
+            return loc
         except (GeocoderTimedOut, GeocoderServiceError):
             return None
 
