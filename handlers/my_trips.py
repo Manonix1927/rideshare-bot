@@ -14,6 +14,7 @@ from keyboards.keyboards import (
     edit_trip_fields_kb,
     confirm_delete_kb,
     confirmed_trip_contact_kb,
+    cancel_confirmed_trip_kb,
     geo_or_text_kb,
     dest_kb,
     cancel_kb,
@@ -160,6 +161,9 @@ def _confirmed_trip_kb(match: Match, user_trip: Trip):
     ))
     builder.row(InlineKeyboardButton(
         text="🏁 Поїздка завершена", callback_data=f"manual_close:{match.id}"
+    ))
+    builder.row(InlineKeyboardButton(
+        text="❌ Скасувати поїздку", callback_data=f"cancel_confirmed_ask:{match.id}"
     ))
     return builder.as_markup()
 
@@ -494,3 +498,93 @@ async def edit_seats(message: Message, state: FSMContext, session: AsyncSession,
             f"💺 Попутник змінив кількість {label}: <b>{seats}</b>",
             session, bot,
         )
+
+
+# ─── Cancel confirmed trip flow ───────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("cancel_confirmed_ask:"))
+async def cancel_confirmed_ask(callback: CallbackQuery) -> None:
+    match_id = int(callback.data.split(":")[1])
+    await callback.message.answer(
+        "❌ <b>Скасування підтвердженої поїздки</b>\n\n"
+        "Вкажіть причину скасування — ваш попутник отримає повідомлення:",
+        parse_mode="HTML",
+        reply_markup=cancel_confirmed_trip_kb(match_id),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("cancel_confirmed_back:"))
+async def cancel_confirmed_back(callback: CallbackQuery) -> None:
+    await callback.message.delete()
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("cancel_confirmed:"))
+async def cancel_confirmed_reason(callback: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
+    parts = callback.data.split(":")
+    match_id, reason_code = int(parts[1]), parts[2]
+
+    reasons = {
+        "plans":       "Змінились плани",
+        "emergency":   "Надзвичайна ситуація",
+        "time":        "Не встигаю на цей час",
+        "found_other": "Знайшов інший варіант",
+        "other":       "Інше",
+    }
+    reason_text = reasons.get(reason_code, "Інше")
+
+    result = await session.execute(
+        select(Match)
+        .options(
+            selectinload(Match.driver_trip).selectinload(Trip.user),
+            selectinload(Match.passenger_trip).selectinload(Trip.user),
+        )
+        .where(Match.id == match_id)
+    )
+    match = result.scalars().first()
+
+    if not match or match.status != "CONFIRMED":
+        await callback.answer("Поїздку вже скасовано або вона не існує.", show_alert=True)
+        return
+
+    user_id = callback.from_user.id
+    driver_trip = match.driver_trip
+    passenger_trip = match.passenger_trip
+
+    if driver_trip.user_id != user_id and passenger_trip.user_id != user_id:
+        await callback.answer("Ви не є учасником цієї поїздки.", show_alert=True)
+        return
+
+    # Cancel the match and return both trips to ACTIVE search
+    match.status = "REJECTED"
+    match.rejection_reason = f"Скасовано учасником: {reason_text}"
+    driver_trip.status = "ACTIVE"
+    passenger_trip.status = "ACTIVE"
+    await session.commit()
+
+    # Who is the other party?
+    if driver_trip.user_id == user_id:
+        canceller_role = "Водій"
+        partner_id = passenger_trip.user_id
+    else:
+        canceller_role = "Пасажир"
+        partner_id = driver_trip.user_id
+
+    # Notify partner
+    try:
+        await bot.send_message(
+            partner_id,
+            f"😔 <b>{canceller_role} скасував поїздку.</b>\n\n"
+            f"📝 Причина: {reason_text}\n\n"
+            "Ваша заявка знову активна — шукаємо нового попутника.",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+    await callback.message.edit_text(
+        f"✅ Поїздку скасовано.\n📝 Причина: {reason_text}\n\n"
+        "Ваша заявка знову активна — шукаємо нового попутника."
+    )
+    await callback.answer()

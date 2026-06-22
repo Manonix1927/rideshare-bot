@@ -142,6 +142,27 @@ def rejection_reason_kb(match_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def cancel_confirmed_trip_kb(match_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    reasons = [
+        ("🔄 Змінились плани", "plans"),
+        ("🚑 Надзвичайна ситуація", "emergency"),
+        ("⏰ Не встигаю на цей час", "time"),
+        ("🚗 Знайшов інший варіант", "found_other"),
+        ("Інше", "other"),
+    ]
+    for label, code in reasons:
+        builder.row(
+            InlineKeyboardButton(
+                text=label, callback_data=f"cancel_confirmed:{match_id}:{code}"
+            )
+        )
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data=f"cancel_confirmed_back:{match_id}")
+    )
+    return builder.as_markup()
+
+
 def meeting_happened_kb(match_id: int, role: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
