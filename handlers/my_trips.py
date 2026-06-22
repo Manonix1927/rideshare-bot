@@ -45,6 +45,7 @@ def _trip_card(trip: Trip, show_id: bool = True) -> str:
         "MATCHING": "🔄 Знайдено збіг",
         "BOARDING": "🟡 Набір пасажирів",
         "CONFIRMED": "✅ Підтверджено",
+        "IN_PROGRESS": "🚗 В процесі виконання",
         "CLOSED": "⛔ Закрита",
     }
     id_line = f"🆔 Поїздка #{trip.id}\n" if show_id else ""

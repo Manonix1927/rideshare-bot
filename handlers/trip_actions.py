@@ -78,6 +78,8 @@ async def trip_departed(callback: CallbackQuery, session: AsyncSession, bot: Bot
         return
 
     match.driver_departed = True
+    # Mark the driver trip as in progress — no new passengers can be added
+    match.driver_trip.status = "IN_PROGRESS"
     await session.commit()
 
     driver_user = match.driver_trip.user
