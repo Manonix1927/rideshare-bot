@@ -2,12 +2,13 @@ import math
 import asyncio
 import re
 from typing import Optional
-from geopy.geocoders import Nominatim
+from geopy.geocoders import Nominatim, Photon
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 
 from config import NOMINATIM_UA
 
 _geocoder = Nominatim(user_agent=NOMINATIM_UA, timeout=10)
+_photon   = Photon(user_agent=NOMINATIM_UA, timeout=10)
 
 # Viewbox half-size in degrees (~50 km)
 _VIEWBOX_DEG = 0.5
@@ -53,6 +54,22 @@ _STREET_PREFIXES = re.compile(
 
 _HOUSE_RE = re.compile(r'\b(\d+[а-яіїєa-z]?(?:/\d+)?)\s*(?:,|$)', re.IGNORECASE)
 
+# Matches city-type prefixes: "м.", "М . ", "місто", "смт", "мст"
+# Also catches common typos: мысто (ы замість і), мисто, misto/mysto (транслітерація),
+# город (рос.), змішана розкладка (Latin m/i поруч із кириличними літерами).
+# Group 1 = city name (Cyrillic word after the prefix)
+_CITY_PREFIX_RE = re.compile(
+    r'\b(?:'
+    r'[мm][іиыi]сто'   # місто / мисто / мысто / misто (кирилиця або Latin-m/i)
+    r'|m[iy]sto'        # чисто латинська транслітерація: misto, mysto
+    r'|город'           # російський синонім
+    r'|м\s*\.?\s*'      # м. / М . / м /  (абревіатура)
+    r'|смт\s*\.?\s*'    # смт.
+    r'|мст\s*\.?\s*'    # мст.
+    r')\s*([Ѐ-ӿ][Ѐ-ӿ\'\-]+)',
+    re.IGNORECASE,
+)
+
 
 def _inject_housenumber(address_query: str, display: str) -> str:
     """If user typed a house number but OSM didn't return one, inject it into display."""
@@ -67,6 +84,20 @@ def _inject_housenumber(address_query: str, display: str) -> str:
         street_part, rest = display.split(", ", 1)
         return f"{street_part}, {house}, {rest}"
     return f"{display}, {house}"
+
+
+def _extract_city_from_text(text: str) -> tuple[str | None, str]:
+    """
+    Parse city name from user-typed prefixes: "м. Бориспіль", "місто Васильків", "смт Обухів".
+    Returns (city_name, text_without_the_prefix_and_city).
+    Returns (None, text) when no prefix found.
+    """
+    m = _CITY_PREFIX_RE.search(text)
+    if not m:
+        return None, text
+    city_name = m.group(1)
+    cleaned = (text[:m.start()] + text[m.end():]).strip().strip(",").strip()
+    return city_name, cleaned
 
 
 def _detect_city(text: str) -> tuple[str | None, tuple[float, float] | None, str]:
@@ -124,6 +155,69 @@ async def _geocode_dict(street: str, city: str | None = None) -> Optional[object
         return None
 
 
+async def _geocode_city(city_name: str) -> tuple[float, float] | None:
+    """Geocode a city name (e.g. 'Бориспіль') to (lat, lon) for viewbox biasing."""
+    loop = asyncio.get_event_loop()
+    try:
+        loc = await loop.run_in_executor(
+            None,
+            lambda: _geocoder.geocode(
+                {"city": city_name, "country": "Ukraine"},
+                language="uk",
+            ),
+        )
+        if loc:
+            return (loc.latitude, loc.longitude)
+    except (GeocoderTimedOut, GeocoderServiceError):
+        pass
+    return None
+
+
+async def _photon_geocode(
+    query: str,
+    lat: float | None = None,
+    lon: float | None = None,
+) -> list[tuple[float, float, str, str]]:
+    """
+    Photon (Komoot) geocoder — fuzzy OSM-based.
+    Returns [(lat, lon, display, city), ...] filtered to Ukraine.
+    """
+    loop = asyncio.get_event_loop()
+    kwargs: dict = {"exactly_one": False, "limit": 5, "language": "uk"}
+    if lat is not None and lon is not None:
+        kwargs["location_bias"] = (lat, lon)
+    try:
+        results = await loop.run_in_executor(
+            None, lambda: _photon.geocode(query, **kwargs)
+        ) or []
+    except Exception:
+        return []
+    if not isinstance(results, list):
+        results = [results] if results else []
+
+    output: list[tuple[float, float, str, str]] = []
+    for loc in results:
+        props = loc.raw.get("properties", {})
+        cc = props.get("countrycode", "").upper()
+        country = props.get("country", "").lower()
+        # Filter to Ukraine
+        if cc and cc != "UA":
+            continue
+        if not cc and country and "україн" not in country and "ukrain" not in country:
+            continue
+        street = props.get("street") or props.get("name") or ""
+        housenumber = props.get("housenumber") or ""
+        city = props.get("city") or props.get("county") or props.get("state") or ""
+        parts = []
+        if street:
+            parts.append(f"{street}, {housenumber}".rstrip(", ") if housenumber else street)
+        if city:
+            parts.append(city)
+        display = ", ".join(p for p in parts if p) or loc.address or "Невідома адреса"
+        output.append((loc.latitude, loc.longitude, display, city))
+    return output
+
+
 async def geocode_address_multi(
     address: str,
     near_lat: float | None = None,
@@ -138,6 +232,12 @@ async def geocode_address_multi(
     loop = asyncio.get_event_loop()
 
     _, city_coords, _ = _detect_city(address)
+
+    # Dynamic detection: "м. Бориспіль", "місто Васильків", etc.
+    if not city_coords:
+        _dyn_city, _ = _extract_city_from_text(address)
+        if _dyn_city:
+            city_coords = await _geocode_city(_dyn_city)
 
     vb_lat, vb_lon = None, None
     if city_coords:
@@ -213,6 +313,14 @@ async def geocode_address_multi(
             city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or home_city
             unique.append((dict_loc.latitude, dict_loc.longitude, _format_address(dict_loc.raw), city))
 
+    # Photon fallback — fuzzy matching catches typos and abbreviations Nominatim misses
+    if not unique:
+        photon_results = await _photon_geocode(address, vb_lat, vb_lon)
+        for p_lat, p_lon, p_display, p_city in photon_results:
+            if p_city and p_city not in seen_cities:
+                seen_cities.add(p_city)
+                unique.append((p_lat, p_lon, _inject_housenumber(address, p_display), p_city))
+
     # Inject user-typed house number if OSM didn't return one
     if unique:
         lat, lon, disp, city = unique[0]
@@ -237,6 +345,12 @@ async def geocode_address(
     loop = asyncio.get_event_loop()
 
     city_name, city_coords, street_only = _detect_city(address)
+
+    # Dynamic detection: "м. Бориспіль", "місто Васильків", "смт Обухів", etc.
+    if not city_name:
+        city_name, street_only = _extract_city_from_text(address)
+        if city_name:
+            city_coords = await _geocode_city(city_name)
 
     # Choose viewbox center: explicit city in query wins over from_lat/from_lon
     if city_coords:
@@ -310,6 +424,20 @@ async def geocode_address(
         loc = await _try("вулиця " + address, None, False)
         if loc:
             candidates.append(loc)
+
+    # 8) Photon fallback — fuzzy OSM, handles typos and abbreviations
+    if not candidates:
+        photon_results = await _photon_geocode(address, vb_lat, vb_lon)
+        if photon_results:
+            lat, lon, display, _ = photon_results[0]
+            return lat, lon, _inject_housenumber(address, display)
+
+    # 9) Photon with explicit city appended (helps bare "вул. Головатого Бориспіль")
+    if not candidates and city_name and street_only and street_only != address:
+        photon_results = await _photon_geocode(f"{street_only}, {city_name}", vb_lat, vb_lon)
+        if photon_results:
+            lat, lon, display, _ = photon_results[0]
+            return lat, lon, _inject_housenumber(address, display)
 
     if candidates:
         loc = candidates[0]

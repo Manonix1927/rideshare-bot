@@ -103,17 +103,20 @@ async def driver_from_text(message: Message, state: FSMContext, session: AsyncSe
         return
 
     lat, lon, address, city = candidates[0]
-    await state.update_data(from_lat=lat, from_lon=lon, from_address=address, from_city=city)
-    await state.set_state(DriverStates.to_address)
-    await message.answer(
-        f"✅ Відправлення: {address}\n\n🚗 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
-        parse_mode="HTML",
-        reply_markup=dest_kb(),
+    await state.update_data(
+        pending_from_lat=lat, pending_from_lon=lon,
+        pending_from_address=address, pending_from_city=city,
     )
+    msg = await message.answer(
+        f"📍 Знайдено: <b>{address}</b>\n\nЦе правильна адреса відправлення?",
+        parse_mode="HTML",
+        reply_markup=confirm_address_kb("driver", "from", lat, lon),
+    )
+    await state.update_data(pending_confirm_msg_id=msg.message_id)
 
 
 @router.message(DriverStates.from_address, F.web_app_data)
-async def driver_from_webapp(message: Message, state: FSMContext) -> None:
+async def driver_from_webapp(message: Message, state: FSMContext, bot: Bot) -> None:
     await message.delete()
     try:
         data = _json.loads(message.web_app_data.data)
@@ -125,6 +128,15 @@ async def driver_from_webapp(message: Message, state: FSMContext) -> None:
     if not address:
         await message.answer("❌ Не вдалося визначити адресу. Спробуйте ще раз або введіть вручну.")
         return
+
+    # Delete the pending confirmation inline message if it exists
+    prev = (await state.get_data()).get("pending_confirm_msg_id")
+    if prev:
+        try:
+            await bot.delete_message(message.chat.id, prev)
+        except Exception:
+            pass
+        await state.update_data(pending_confirm_msg_id=None)
 
     city = await get_city_from_coords(lat, lon)
     await state.update_data(from_lat=lat, from_lon=lon, from_address=address, from_city=city)
@@ -136,8 +148,41 @@ async def driver_from_webapp(message: Message, state: FSMContext) -> None:
     )
 
 
+@router.callback_query(F.data == "addr_ok:driver:from", DriverStates.from_address)
+async def driver_from_addr_ok(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    await state.update_data(
+        from_lat=data["pending_from_lat"],
+        from_lon=data["pending_from_lon"],
+        from_address=data["pending_from_address"],
+        from_city=data["pending_from_city"],
+        pending_confirm_msg_id=None,
+    )
+    await state.set_state(DriverStates.to_address)
+    await callback.message.edit_text(
+        f"✅ Відправлення: {data['pending_from_address']}",
+        parse_mode="HTML",
+    )
+    await callback.message.answer(
+        "🚗 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
+        parse_mode="HTML",
+        reply_markup=dest_kb(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "addr_retry:driver:from", DriverStates.from_address)
+async def driver_from_addr_retry(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "🚗 Введіть адресу відправлення:\n"
+        "<i>Для точного результату вказуйте місто, наприклад: Хрещатик 1, Київ</i>",
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
 @router.message(DriverStates.to_address, F.web_app_data)
-async def driver_to_webapp(message: Message, state: FSMContext) -> None:
+async def driver_to_webapp(message: Message, state: FSMContext, bot: Bot) -> None:
     await message.delete()
     try:
         data = _json.loads(message.web_app_data.data)
@@ -149,6 +194,15 @@ async def driver_to_webapp(message: Message, state: FSMContext) -> None:
     if not address:
         await message.answer("❌ Не вдалося визначити адресу. Спробуйте ще раз або введіть вручну.")
         return
+
+    # Delete the pending address-confirmation inline message if it exists
+    prev = (await state.get_data()).get("pending_confirm_msg_id")
+    if prev:
+        try:
+            await bot.delete_message(message.chat.id, prev)
+        except Exception:
+            pass
+        await state.update_data(pending_confirm_msg_id=None)
 
     await state.update_data(to_lat=lat, to_lon=lon, to_address=address)
     await state.set_state(DriverStates.departure_time)
@@ -207,14 +261,15 @@ async def driver_to_text(message: Message, state: FSMContext) -> None:
 
     lat, lon, address, _city = candidates[0]
     await state.update_data(pending_to_lat=lat, pending_to_lon=lon, pending_to_address=address)
-    await message.answer(
-        f"📍 Знайдено: <b>{address}</b>\n\nЦе правильна адреса?",
+    msg = await message.answer(
+        f"📍 Знайдено: <b>{address}</b>\n\nЦе правильна адреса призначення?",
         parse_mode="HTML",
-        reply_markup=confirm_address_kb("driver"),
+        reply_markup=confirm_address_kb("driver", "to", lat, lon),
     )
+    await state.update_data(pending_confirm_msg_id=msg.message_id)
 
 
-@router.callback_query(F.data == "addr_ok:driver", DriverStates.to_address)
+@router.callback_query(F.data == "addr_ok:driver:to", DriverStates.to_address)
 async def driver_addr_ok(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     await state.update_data(
@@ -232,7 +287,7 @@ async def driver_addr_ok(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data == "addr_retry:driver", DriverStates.to_address)
+@router.callback_query(F.data == "addr_retry:driver:to", DriverStates.to_address)
 async def driver_addr_retry(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
         "🚗 Введіть адресу пункту призначення:\n"

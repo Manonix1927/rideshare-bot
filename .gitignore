@@ -3,5 +3,4 @@ rideshare.db
 __pycache__/
 *.py[cod]
 *.log
-webapp/
 .claude/

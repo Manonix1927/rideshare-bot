@@ -103,17 +103,20 @@ async def passenger_from_text(message: Message, state: FSMContext, session: Asyn
         return
 
     lat, lon, address, city = candidates[0]
-    await state.update_data(from_lat=lat, from_lon=lon, from_address=address, from_city=city)
-    await state.set_state(PassengerStates.to_address)
-    await message.answer(
-        f"✅ Відправлення: {address}\n\n🙋 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
-        parse_mode="HTML",
-        reply_markup=dest_kb(),
+    await state.update_data(
+        pending_from_lat=lat, pending_from_lon=lon,
+        pending_from_address=address, pending_from_city=city,
     )
+    msg = await message.answer(
+        f"📍 Знайдено: <b>{address}</b>\n\nЦе правильна адреса відправлення?",
+        parse_mode="HTML",
+        reply_markup=confirm_address_kb("passenger", "from", lat, lon),
+    )
+    await state.update_data(pending_confirm_msg_id=msg.message_id)
 
 
 @router.message(PassengerStates.from_address, F.web_app_data)
-async def passenger_from_webapp(message: Message, state: FSMContext) -> None:
+async def passenger_from_webapp(message: Message, state: FSMContext, bot: Bot) -> None:
     await message.delete()
     try:
         data = _json.loads(message.web_app_data.data)
@@ -125,6 +128,14 @@ async def passenger_from_webapp(message: Message, state: FSMContext) -> None:
     if not address:
         await message.answer("❌ Не вдалося визначити адресу. Спробуйте ще раз або введіть вручну.")
         return
+
+    prev = (await state.get_data()).get("pending_confirm_msg_id")
+    if prev:
+        try:
+            await bot.delete_message(message.chat.id, prev)
+        except Exception:
+            pass
+        await state.update_data(pending_confirm_msg_id=None)
 
     city = await get_city_from_coords(lat, lon)
     await state.update_data(from_lat=lat, from_lon=lon, from_address=address, from_city=city)
@@ -137,7 +148,7 @@ async def passenger_from_webapp(message: Message, state: FSMContext) -> None:
 
 
 @router.message(PassengerStates.to_address, F.web_app_data)
-async def passenger_to_webapp(message: Message, state: FSMContext) -> None:
+async def passenger_to_webapp(message: Message, state: FSMContext, bot: Bot) -> None:
     await message.delete()
     try:
         data = _json.loads(message.web_app_data.data)
@@ -149,6 +160,14 @@ async def passenger_to_webapp(message: Message, state: FSMContext) -> None:
     if not address:
         await message.answer("❌ Не вдалося визначити адресу. Спробуйте ще раз або введіть вручну.")
         return
+
+    prev = (await state.get_data()).get("pending_confirm_msg_id")
+    if prev:
+        try:
+            await bot.delete_message(message.chat.id, prev)
+        except Exception:
+            pass
+        await state.update_data(pending_confirm_msg_id=None)
 
     await state.update_data(to_lat=lat, to_lon=lon, to_address=address)
     await state.set_state(PassengerStates.departure_time)
@@ -207,14 +226,48 @@ async def passenger_to_text(message: Message, state: FSMContext) -> None:
 
     lat, lon, address, _city = candidates[0]
     await state.update_data(pending_to_lat=lat, pending_to_lon=lon, pending_to_address=address)
-    await message.answer(
-        f"📍 Знайдено: <b>{address}</b>\n\nЦе правильна адреса?",
+    msg = await message.answer(
+        f"📍 Знайдено: <b>{address}</b>\n\nЦе правильна адреса призначення?",
         parse_mode="HTML",
-        reply_markup=confirm_address_kb("passenger"),
+        reply_markup=confirm_address_kb("passenger", "to", lat, lon),
     )
+    await state.update_data(pending_confirm_msg_id=msg.message_id)
 
 
-@router.callback_query(F.data == "addr_ok:passenger", PassengerStates.to_address)
+@router.callback_query(F.data == "addr_ok:passenger:from", PassengerStates.from_address)
+async def passenger_from_addr_ok(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    await state.update_data(
+        from_lat=data["pending_from_lat"],
+        from_lon=data["pending_from_lon"],
+        from_address=data["pending_from_address"],
+        from_city=data["pending_from_city"],
+        pending_confirm_msg_id=None,
+    )
+    await state.set_state(PassengerStates.to_address)
+    await callback.message.edit_text(
+        f"✅ Відправлення: {data['pending_from_address']}",
+        parse_mode="HTML",
+    )
+    await callback.message.answer(
+        "🙋 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
+        parse_mode="HTML",
+        reply_markup=dest_kb(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "addr_retry:passenger:from", PassengerStates.from_address)
+async def passenger_from_addr_retry(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "🙋 Введіть адресу відправлення:\n"
+        "<i>Для точного результату вказуйте місто, наприклад: Хрещатик 1, Київ</i>",
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "addr_ok:passenger:to", PassengerStates.to_address)
 async def passenger_addr_ok(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     await state.update_data(
@@ -232,7 +285,7 @@ async def passenger_addr_ok(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data == "addr_retry:passenger", PassengerStates.to_address)
+@router.callback_query(F.data == "addr_retry:passenger:to", PassengerStates.to_address)
 async def passenger_addr_retry(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
         "🙋 Введіть адресу пункту призначення:\n"

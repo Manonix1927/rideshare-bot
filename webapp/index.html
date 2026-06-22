@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Маршрут поїздки</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header info panel -->
+    <div id="info-panel">
+      <div id="route-header">
+        <div id="route-from">
+          <span class="dot dot-green"></span>
+          <span id="from-label">Завантаження...</span>
+        </div>
+        <div id="route-arrow">↓</div>
+        <div id="route-to">
+          <span class="dot dot-red"></span>
+          <span id="to-label"></span>
+        </div>
+      </div>
+      <div id="trip-details">
+        <div class="detail-chip" id="chip-time">
+          <span class="chip-icon">🕒</span>
+          <span id="detail-time">—</span>
+        </div>
+        <div class="detail-chip" id="chip-price">
+          <span class="chip-icon">💰</span>
+          <span id="detail-price">—</span>
+        </div>
+        <div class="detail-chip" id="chip-seats">
+          <span class="chip-icon">💺</span>
+          <span id="detail-seats">—</span>
+        </div>
+        <div class="detail-chip" id="chip-role">
+          <span class="chip-icon">👤</span>
+          <span id="detail-role">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Distance badge -->
+    <div id="distance-badge" style="display:none">
+      <span id="distance-text"></span>
+    </div>
+
+    <!-- Pick-mode overlay (map location picker) -->
+    <div id="pick-overlay">
+      <div id="pick-address-pill">Визначення адреси…</div>
+      <div id="pick-pin">
+        <svg width="36" height="48" viewBox="0 0 36 48" xmlns="http://www.w3.org/2000/svg">
+          <path d="M18 0C8.06 0 0 8.06 0 18c0 12.44 18 30 18 30S36 30.44 36 18C36 8.06 27.94 0 18 0z"
+                fill="#2481cc" stroke="white" stroke-width="2.5"/>
+          <circle cx="18" cy="18" r="8" fill="white"/>
+          <circle cx="18" cy="18" r="4" fill="#2481cc"/>
+        </svg>
+      </div>
+      <div id="pick-shadow"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

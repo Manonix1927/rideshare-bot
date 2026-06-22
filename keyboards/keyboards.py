@@ -97,12 +97,22 @@ def city_picker_kb(candidates: list, role: str, field: str) -> InlineKeyboardMar
     return builder.as_markup()
 
 
-def confirm_address_kb(role: str) -> InlineKeyboardMarkup:
+def confirm_address_kb(role: str, field: str, lat: float, lon: float) -> InlineKeyboardMarkup:
+    """
+    Confirmation keyboard for a geocoded address.
+    field: "from" or "to" — used in callback_data so handlers know which address is being confirmed.
+    Adds a WebApp "show on map" button pre-positioned at lat/lon so the user can nudge the pin.
+    """
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="✅ Вірно", callback_data=f"addr_ok:{role}"),
-        InlineKeyboardButton(text="🔄 Ввести інший", callback_data=f"addr_retry:{role}"),
+        InlineKeyboardButton(text="✅ Вірно", callback_data=f"addr_ok:{role}:{field}"),
+        InlineKeyboardButton(text="🔄 Ввести інший", callback_data=f"addr_retry:{role}:{field}"),
     )
+    if WEBAPP_URL:
+        map_url = f"{WEBAPP_URL}/?mode=pick&lat={lat:.6f}&lon={lon:.6f}"
+        builder.row(
+            InlineKeyboardButton(text="🗺 Уточнити на карті", web_app=WebAppInfo(url=map_url))
+        )
     return builder.as_markup()
 
 
