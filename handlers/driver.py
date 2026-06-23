@@ -2,7 +2,7 @@ import json as _json
 from datetime import datetime, date
 from services.timezone import now as _now, today as _today
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -17,6 +17,20 @@ from states.states import DriverStates
 from config import MAX_ACTIVE_TRIPS
 
 router = Router()
+
+
+async def _to_date_step(message: Message, address: str) -> None:
+    """Confirm destination, drop the lingering reply keyboard, then show the
+    inline date picker. A single message can't carry both ReplyKeyboardRemove
+    and an inline keyboard, so we send two."""
+    await message.answer(
+        f"✅ Призначення: {address}", reply_markup=ReplyKeyboardRemove()
+    )
+    await message.answer(
+        "🚗 <b>Крок 3/5</b>\n\nОберіть дату виїзду:",
+        parse_mode="HTML",
+        reply_markup=date_picker_kb(),
+    )
 
 
 def _parse_datetime(text: str) -> datetime | None:
@@ -216,11 +230,7 @@ async def driver_to_webapp(message: Message, state: FSMContext, bot: Bot) -> Non
         return
     await state.update_data(to_lat=lat, to_lon=lon, to_address=address)
     await state.set_state(DriverStates.departure_time)
-    await message.answer(
-        f"✅ Призначення: {address}\n\n🚗 <b>Крок 3/5</b>\n\nОберіть дату виїзду:",
-        parse_mode="HTML",
-        reply_markup=date_picker_kb(),
-    )
+    await _to_date_step(message, address)
 
 
 @router.message(DriverStates.to_address, F.location)
@@ -232,11 +242,7 @@ async def driver_to_location(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(to_lat=lat, to_lon=lon, to_address=address)
     await state.set_state(DriverStates.departure_time)
-    await message.answer(
-        f"✅ Призначення: {address}\n\n🚗 <b>Крок 3/5</b>\n\nОберіть дату виїзду:",
-        parse_mode="HTML",
-        reply_markup=date_picker_kb(),
-    )
+    await _to_date_step(message, address)
 
 
 @router.message(DriverStates.to_address, F.text)
@@ -258,11 +264,7 @@ async def driver_to_text(message: Message, state: FSMContext) -> None:
             to_address=data["pending_to_address"],
         )
         await state.set_state(DriverStates.departure_time)
-        await message.answer(
-            f"✅ Призначення: {data['pending_to_address']}\n\n🚗 <b>Крок 3/5</b>\n\nОберіть дату виїзду:",
-            parse_mode="HTML",
-            reply_markup=date_picker_kb(),
-        )
+        await _to_date_step(message, data["pending_to_address"])
         return
 
     if message.text == "🔄 Ввести інший":
