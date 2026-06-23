@@ -457,6 +457,19 @@ async def _google_geocode(
     if not out and not _STREET_PREFIXES.match(address.strip()):
         out = await _google_call(f"вулиця {address}", bounds)
 
+    # If the user explicitly named a city, don't silently switch it. When the street
+    # doesn't exist there (e.g. renamed "Ломоносова" in Київ), Google returns the
+    # nearest real match in another town (Вишневе). Drop those — better to report
+    # "not found in <city>" than quietly pin a different settlement.
+    explicit_city = _detect_city(address)[0] or _extract_city_from_text(address)[0]
+    if explicit_city and out:
+        ec = explicit_city.lower()
+        matched = [r for r in out if r[3] and (ec in r[3].lower() or r[3].lower() in ec)]
+        if not matched:
+            logger.info("Google %r: explicit city %r not matched (got %s) — dropping",
+                        address, explicit_city, [r[3] for r in out])
+        out = matched
+
     logger.info("Google geocode %r -> %d result(s)", address, len(out))
     return out
 
