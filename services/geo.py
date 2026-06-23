@@ -23,6 +23,14 @@ _GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 _GOOGLE_COOLDOWN_SEC = 600  # 10 minutes
 _google_cooldown_until = 0.0
 
+# Startup diagnostic — makes it obvious in Railway logs whether the running
+# process actually sees the key (vs. an old deploy / empty env var).
+logger.info(
+    "Geocoder init: Google=%s",
+    f"ENABLED (key …{GOOGLE_MAPS_API_KEY[-4:]})" if GOOGLE_MAPS_API_KEY
+    else "DISABLED — no GOOGLE_MAPS_API_KEY, using OSM only",
+)
+
 # Viewbox half-size in degrees (~50 km)
 _VIEWBOX_DEG = 0.5
 
@@ -408,8 +416,10 @@ async def _google_geocode(
         _google_cooldown_until = time.monotonic() + _GOOGLE_COOLDOWN_SEC
         return []
     if status != "OK":
+        logger.info("Google geocode %r status=%s — falling back to OSM", address, status)
         return []  # ZERO_RESULTS etc. — soft miss, let OSM try
 
+    logger.info("Google geocode OK: %r (%d raw)", address, len(data.get("results", [])))
     out: list[tuple[float, float, str, str]] = []
     for r in data.get("results", []):
         if not _google_is_usable(r):
