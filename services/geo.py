@@ -363,6 +363,25 @@ async def geocode_address_multi(
             city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or home_city
             unique.append((dict_loc.latitude, dict_loc.longitude, _format_address(dict_loc.raw), city))
 
+    # Kyiv explicit check: when no city is in the query, Nominatim country-wide results
+    # may miss Kyiv (e.g. "Святошинська 10" returns only suburb results, not Kyiv itself;
+    # "Щекавицька 45" finds nothing without a city hint). Always try Kyiv structured search
+    # when no city was specified and Kyiv is not already among the results.
+    if not city_coords and not _dyn_city:
+        kyiv_in = any(c and "київ" in c.lower() for _, _, _, c in unique)
+        if not kyiv_in and len(unique) < 5:
+            kyiv_loc = await _geocode_dict(address, "київ")
+            if not kyiv_loc:
+                kyiv_loc = await _geocode_dict("вулиця " + address, "київ")
+            if kyiv_loc:
+                a = kyiv_loc.raw.get("address", {})
+                c = (a.get("city") or a.get("town") or a.get("municipality")
+                     or a.get("village") or "Київ")
+                if c not in seen_cities:
+                    seen_cities.add(c)
+                    unique.insert(0, (kyiv_loc.latitude, kyiv_loc.longitude,
+                                      _format_address(kyiv_loc.raw), c))
+
     # Photon fallback — fuzzy matching catches typos and abbreviations Nominatim misses
     if not unique:
         _photon_q = f"{_dyn_cleaned}, {_dyn_city}" if (_dyn_city and _dyn_cleaned != address) else address
