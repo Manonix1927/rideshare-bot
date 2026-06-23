@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Поїздка #{{ t.id }}{% endblock %}
+{% block content %}
+<div class="page-title">
+  <a href="/admin/trips" style="color:#6b7280;text-decoration:none">🚗 Поїздки</a>
+  <span style="color:#6b7280"> / </span> #{{ t.id }}
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">📋 Деталі поїздки</div>
+      <div style="padding:16px;display:flex;flex-direction:column;gap:8px;font-size:13px">
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Роль</span>
+          <span class="badge badge-{{ t.role }} px-2">{{ '🚗 Водій' if t.role=='driver' else '🙋 Пасажир' }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Користувач</span>
+          <a href="/admin/users/{{ t.user_id }}" style="color:#6c8ef7;text-decoration:none">{{ t.user.first_name if t.user else t.user_id }}</a></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Звідки</span><span style="text-align:right;max-width:60%">{{ t.from_address }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Куди</span><span style="text-align:right;max-width:60%">{{ t.to_address }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Час</span><span>{{ t.departure_time.strftime('%d.%m.%Y %H:%M') }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Ціна / Місця</span><span>{{ t.price|round|int if t.price else '—' }} грн · {{ t.seats or '—' }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Статус</span><span style="color:#9ca3af">{{ t.status }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Створено</span><span>{{ t.created_at.strftime('%d.%m.%Y %H:%M') if t.created_at else '—' }}</span></div>
+        {% if t.status not in ['CLOSED'] %}
+        <form method="post" action="/admin/trips/{{ t.id }}/close" class="mt-2"
+              onsubmit="return confirm('Закрити поїздку #{{ t.id }}?')">
+          <button class="btn btn-sm btn-outline-danger">🗑 Закрити поїздку</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">🗺 Карта</div>
+      <div id="map" style="height:300px;border-radius:0 0 10px 10px"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">🤝 Матчі цієї поїздки ({{ matches|length }})</div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>ID</th><th>Водій</th><th>Пасажир</th><th>Статус</th><th>Створено</th><th></th></tr></thead>
+      <tbody>
+        {% for m in matches %}
+        <tr>
+          <td><a href="/admin/matches/{{ m.id }}" style="color:#6c8ef7;text-decoration:none">#{{ m.id }}</a></td>
+          <td>{{ m.driver_trip.user.first_name if m.driver_trip and m.driver_trip.user else '—' }}</td>
+          <td>{{ m.passenger_trip.user.first_name if m.passenger_trip and m.passenger_trip.user else '—' }}</td>
+          <td><span style="font-size:11px;color:#9ca3af">{{ m.status }}</span></td>
+          <td style="color:#9ca3af;white-space:nowrap">{{ m.created_at.strftime('%d.%m %H:%M') if m.created_at else '' }}</td>
+          <td><a href="/admin/matches/{{ m.id }}" class="btn btn-sm btn-outline-secondary" style="font-size:11px">Деталі</a></td>
+        </tr>
+        {% else %}<tr><td colspan="6" style="color:#6b7280;text-align:center;padding:16px">Матчів ще немає</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const fromLL = [{{ t.from_lat }}, {{ t.from_lon }}];
+  const toLL   = [{{ t.to_lat }}, {{ t.to_lon }}];
+  const map = L.map('map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  L.marker(fromLL).addTo(map).bindPopup('Звідки');
+  L.marker(toLL).addTo(map).bindPopup('Куди');
+  L.polyline([fromLL, toLL], { color: '#6c8ef7', dashArray: '6 6' }).addTo(map);
+  map.fitBounds([fromLL, toLL], { padding: [40, 40] });
+</script>
+{% endblock %}

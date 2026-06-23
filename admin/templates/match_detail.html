@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Матч #{{ m.id }}{% endblock %}
+{% block content %}
+<div class="page-title">
+  <a href="/admin/matches" style="color:#6b7280;text-decoration:none">🤝 Матчі</a>
+  <span style="color:#6b7280"> / </span> #{{ m.id }}
+</div>
+
+{% if done == 'confirm' %}<div class="alert alert-success py-2">Матч підтверджено, обидві сторони сповіщено ✅</div>{% endif %}
+{% if done == 'cancel' %}<div class="alert alert-warning py-2">Матч скасовано, обидві сторони сповіщено ⚠️</div>{% endif %}
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">📋 Статус матчу</div>
+      <div style="padding:16px;display:flex;flex-direction:column;gap:8px;font-size:13px">
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Статус</span><span style="font-weight:600">{{ m.status }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Водій підтвердив</span><span>{{ '✅' if m.driver_confirmed else '⏳' }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Пасажир підтвердив</span><span>{{ '✅' if m.passenger_confirmed else '⏳' }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Виїхав</span><span>{{ '✅' if m.driver_departed else '—' }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Пасажир на місці</span><span>{{ '✅' if m.passenger_ready else '—' }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Нагадування</span><span>{{ '✅' if m.reminder_sent else '—' }}</span></div>
+        {% if m.cancelled_by %}<div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Скасував</span><span style="color:#f87171">{{ m.cancelled_by }}</span></div>{% endif %}
+        {% if m.cancel_reason %}<div style="color:#9ca3af">Причина: {{ m.cancel_reason }}</div>{% endif %}
+        {% if m.rejection_reason %}<div style="color:#9ca3af">Відмова: {{ m.rejection_reason }}</div>{% endif %}
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Створено</span><span>{{ m.created_at.strftime('%d.%m %H:%M') if m.created_at else '—' }}</span></div>
+      </div>
+      {% if m.status in ['PENDING','MATCHING'] %}
+      <div style="padding:0 16px 16px;display:flex;gap:8px">
+        <form method="post" action="/admin/matches/{{ m.id }}/confirm" onsubmit="return confirm('Підтвердити матч і сповістити обох?')">
+          <button class="btn btn-sm btn-primary">✅ Підтвердити</button>
+        </form>
+        <form method="post" action="/admin/matches/{{ m.id }}/cancel" onsubmit="return confirm('Скасувати матч?')">
+          <button class="btn btn-sm btn-outline-danger">❌ Скасувати</button>
+        </form>
+      </div>
+      {% elif m.status == 'CONFIRMED' %}
+      <div style="padding:0 16px 16px">
+        <form method="post" action="/admin/matches/{{ m.id }}/cancel" onsubmit="return confirm('Скасувати підтверджений матч?')">
+          <button class="btn btn-sm btn-outline-danger">❌ Скасувати поїздку</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% set dt = m.driver_trip %}
+  {% set pt = m.passenger_trip %}
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">🚗 Водій</div>
+      <div style="padding:16px;font-size:13px;display:flex;flex-direction:column;gap:6px">
+        {% if dt %}
+        <div><a href="/admin/users/{{ dt.user_id }}" style="color:#6c8ef7;text-decoration:none">{{ dt.user.first_name if dt.user else dt.user_id }}</a>
+          {% if dt.user and dt.user.username %}<span style="color:#6b7280">@{{ dt.user.username }}</span>{% endif %}</div>
+        <div style="color:#9ca3af">{{ dt.from_address.split(',')[0] }} → {{ dt.to_address.split(',')[0] }}</div>
+        <div style="color:#9ca3af">🕒 {{ dt.departure_time.strftime('%d.%m %H:%M') }} · 💰 {{ dt.price|round|int if dt.price else '—' }} · 💺 {{ dt.seats or '—' }}</div>
+        <div><a href="/admin/trips/{{ dt.id }}" style="font-size:11px;color:#6c8ef7;text-decoration:none">Поїздка #{{ dt.id }} →</a></div>
+        {% if d_loc %}<div style="color:#4ade80;font-size:12px">📡 GPS: {{ '%.4f'|format(d_loc.lat) }}, {{ '%.4f'|format(d_loc.lon) }} ({{ d_loc.updated_at.strftime('%H:%M') }})</div>{% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">🙋 Пасажир</div>
+      <div style="padding:16px;font-size:13px;display:flex;flex-direction:column;gap:6px">
+        {% if pt %}
+        <div><a href="/admin/users/{{ pt.user_id }}" style="color:#6c8ef7;text-decoration:none">{{ pt.user.first_name if pt.user else pt.user_id }}</a>
+          {% if pt.user and pt.user.username %}<span style="color:#6b7280">@{{ pt.user.username }}</span>{% endif %}</div>
+        <div style="color:#9ca3af">{{ pt.from_address.split(',')[0] }} → {{ pt.to_address.split(',')[0] }}</div>
+        <div style="color:#9ca3af">🕒 {{ pt.departure_time.strftime('%d.%m %H:%M') }} · 👥 {{ pt.seats or '—' }}</div>
+        <div><a href="/admin/trips/{{ pt.id }}" style="font-size:11px;color:#6c8ef7;text-decoration:none">Заявка #{{ pt.id }} →</a></div>
+        {% if p_loc %}<div style="color:#fb923c;font-size:12px">📡 GPS: {{ '%.4f'|format(p_loc.lat) }}, {{ '%.4f'|format(p_loc.lon) }} ({{ p_loc.updated_at.strftime('%H:%M') }})</div>{% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

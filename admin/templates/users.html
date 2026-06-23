@@ -31,8 +31,8 @@
       <tbody>
         {% for u in users %}
         <tr {% if u.is_blocked %}style="opacity:0.5"{% endif %}>
-          <td style="color:#6b7280;font-family:monospace">{{ u.id }}</td>
-          <td style="font-weight:500">{{ u.first_name or '—' }}</td>
+          <td style="color:#6b7280;font-family:monospace"><a href="/admin/users/{{ u.id }}" style="color:#6c8ef7;text-decoration:none">{{ u.id }}</a></td>
+          <td style="font-weight:500"><a href="/admin/users/{{ u.id }}" style="color:var(--text);text-decoration:none">{{ u.first_name or '—' }}</a></td>
           <td style="color:#6b7280">{% if u.username %}@{{ u.username }}{% else %}—{% endif %}</td>
           <td>
             {% if u.rating is not none %}

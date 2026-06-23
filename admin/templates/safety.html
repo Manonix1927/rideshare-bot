@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Безпека{% endblock %}
+{% block content %}
+<div class="page-title">🛡 Безпека та репутація</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-val" style="color:#c084fc">⭐ {{ avg_rating }}</div>
+      <div class="stat-lbl">Середня оцінка</div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-val">{{ total_ratings }}</div>
+      <div class="stat-lbl">Всього оцінок</div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-val" style="color:#fbbf24">{{ low_users|length }}</div>
+      <div class="stat-lbl">Низькорейтингових</div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-val" style="color:#f87171">{{ recent_low|length }}</div>
+      <div class="stat-lbl">Низьких оцінок (≤2)</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- Distribution -->
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">📊 Розподіл оцінок</div>
+      <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+        {% set bar_colors = {1:'#f87171',2:'#fb923c',3:'#fbbf24',4:'#a3e635',5:'#4ade80'} %}
+        {% for score in [5,4,3,2,1] %}
+        {% set v = dist[score] %}
+        {% set pct = (v / total_ratings * 100) if total_ratings else 0 %}
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+            <span style="color:#9ca3af">{{ score }} ⭐</span>
+            <span style="color:var(--text);font-weight:600">{{ v }}</span>
+          </div>
+          <div style="height:8px;background:var(--input-bg);border-radius:5px;overflow:hidden">
+            <div style="height:100%;width:{{ pct }}%;background:{{ bar_colors[score] }};border-radius:5px"></div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Low-rated users -->
+  <div class="col-12 col-xl-8">
+    <div class="card h-100">
+      <div class="card-header">⚠️ Користувачі з низьким рейтингом (avg &lt; 4, ≥2 оцінок)</div>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Користувач</th><th>Рейтинг</th><th>Оцінок</th><th>Зривів</th><th></th></tr></thead>
+          <tbody>
+            {% for u in low_users %}
+            <tr>
+              <td><a href="/admin/users/{{ u.id }}" style="color:#6c8ef7;text-decoration:none">{{ u.name }}</a>
+                  {% if u.username %}<span style="color:#6b7280">@{{ u.username }}</span>{% endif %}
+                  {% if u.blocked %}<span class="badge badge-cancelled px-2" style="font-size:10px">BLOCK</span>{% endif %}</td>
+              <td><span style="color:#f87171;font-weight:600">⭐ {{ u.avg }}</span></td>
+              <td>{{ u.count }}</td>
+              <td style="color:#fb923c">{{ u.failed }}</td>
+              <td><a href="/admin/users/{{ u.id }}" class="btn btn-sm btn-outline-secondary" style="font-size:11px">Профіль</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" style="color:#6b7280;text-align:center;padding:20px">Немає проблемних користувачів 🎉</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <!-- Recent low ratings -->
+  <div class="col-12 col-xl-7">
+    <div class="card">
+      <div class="card-header">🔻 Останні низькі оцінки (≤2)</div>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Оцінка</th><th>Кому</th><th>Від кого</th><th>Матч</th><th>Коли</th></tr></thead>
+          <tbody>
+            {% for r in recent_low %}
+            <tr>
+              <td><span style="color:#f87171;font-weight:600">{{ r.score }} ⭐</span></td>
+              <td><a href="/admin/users/{{ r.to_id }}" style="color:#6c8ef7;text-decoration:none">{{ r.to }}</a></td>
+              <td style="color:#9ca3af">{{ r.from }}</td>
+              <td><a href="/admin/matches/{{ r.match_id }}" style="color:#6b7280;text-decoration:none">#{{ r.match_id }}</a></td>
+              <td style="color:#9ca3af;white-space:nowrap">{{ r.date }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" style="color:#6b7280;text-align:center;padding:20px">Немає низьких оцінок</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Most cancellations -->
+  <div class="col-12 col-xl-5">
+    <div class="card">
+      <div class="card-header">🚫 Найбільше зривів поїздок</div>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Користувач</th><th>Зривів</th><th>Успішних</th><th></th></tr></thead>
+          <tbody>
+            {% for u in worst_users %}
+            <tr>
+              <td><a href="/admin/users/{{ u.id }}" style="color:#6c8ef7;text-decoration:none">{{ u.name }}</a>
+                  {% if u.blocked %}<span class="badge badge-cancelled px-2" style="font-size:10px">BLOCK</span>{% endif %}</td>
+              <td style="color:#f87171;font-weight:600">{{ u.failed }}</td>
+              <td style="color:#4ade80">{{ u.success }}</td>
+              <td><a href="/admin/users/{{ u.id }}" class="btn btn-sm btn-outline-secondary" style="font-size:11px">Профіль</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" style="color:#6b7280;text-align:center;padding:20px">Немає зривів</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -31,7 +31,7 @@
       <tbody>
         {% for m in matches %}
         <tr>
-          <td style="color:#6b7280">#{{ m.id }}</td>
+          <td><a href="/admin/matches/{{ m.id }}" style="color:#6c8ef7;text-decoration:none">#{{ m.id }}</a></td>
           <td>
             {% set du = m.driver_trip.user %}
             {% if du %}

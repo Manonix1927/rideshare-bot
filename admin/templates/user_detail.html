@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}{{ u.first_name }}{% endblock %}
+{% block content %}
+<div class="page-title">
+  <a href="/admin/users" style="color:#6b7280;text-decoration:none">👥 Користувачі</a>
+  <span style="color:#6b7280"> / </span> {{ u.first_name }}
+</div>
+
+{% if sent == '1' %}<div class="alert alert-success py-2">Повідомлення надіслано ✅</div>{% endif %}
+{% if sent == '0' %}<div class="alert alert-danger py-2">Не вдалося надіслати (користувач не запускав бота?)</div>{% endif %}
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">👤 Профіль</div>
+      <div style="padding:16px;display:flex;flex-direction:column;gap:8px;font-size:13px">
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">ID</span><span>{{ u.id }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Username</span><span>{% if u.username %}@{{ u.username }}{% else %}—{% endif %}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Місто</span><span>{{ u.home_city or '—' }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Рейтинг</span><span style="color:#c084fc;font-weight:600">⭐ {{ '%.2f'|format(u.rating) if u.rating is not none else '—' }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Поїздок</span><span>{{ u.trips_count or 0 }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Успішних / Зривів</span><span><span style="color:#4ade80">{{ u.successful_trips or 0 }}</span> / <span style="color:#f87171">{{ u.failed_trips or 0 }}</span></span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Реєстрація</span><span>{{ u.created_at.strftime('%d.%m.%Y') if u.created_at else '—' }}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Статус</span>
+          <span>{% if u.is_blocked %}<span class="badge badge-cancelled px-2">Заблоковано</span>{% else %}<span class="badge badge-active px-2">Активний</span>{% endif %}</span></div>
+        <div class="mt-2 d-flex gap-2">
+          {% if u.is_blocked %}
+          <form method="post" action="/admin/users/{{ u.id }}/unblock"><button class="btn btn-sm btn-outline-success">Розблокувати</button></form>
+          {% else %}
+          <form method="post" action="/admin/users/{{ u.id }}/block"><button class="btn btn-sm btn-outline-danger">Заблокувати</button></form>
+          {% endif %}
+          {% if u.username %}<a href="https://t.me/{{ u.username }}" target="_blank" class="btn btn-sm btn-outline-secondary">Telegram ↗</a>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-8">
+    <div class="card h-100">
+      <div class="card-header">✉️ Написати користувачу</div>
+      <div style="padding:16px">
+        <form method="post" action="/admin/users/{{ u.id }}/message">
+          <textarea name="text" class="form-control mb-2" rows="4" placeholder="Текст повідомлення (HTML дозволено)…" required></textarea>
+          <button class="btn btn-primary btn-sm">Надіслати від імені бота</button>
+          <span style="font-size:11px;color:#6b7280;margin-left:8px">Бот напише користувачу напряму.</span>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-xl-7">
+    <div class="card">
+      <div class="card-header">🚗 Поїздки ({{ trips|length }})</div>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>ID</th><th>Роль</th><th>Маршрут</th><th>Час</th><th>Статус</th></tr></thead>
+          <tbody>
+            {% for t in trips %}
+            <tr>
+              <td><a href="/admin/trips/{{ t.id }}" style="color:#6c8ef7;text-decoration:none">#{{ t.id }}</a></td>
+              <td><span class="badge badge-{{ t.role }} px-2" style="font-size:11px">{{ '🚗' if t.role=='driver' else '🙋' }}</span></td>
+              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.from_address.split(',')[0] }} → {{ t.to_address.split(',')[0] }}</td>
+              <td style="color:#9ca3af;white-space:nowrap">{{ t.departure_time.strftime('%d.%m %H:%M') }}</td>
+              <td><span style="font-size:11px;color:#9ca3af">{{ t.status }}</span></td>
+            </tr>
+            {% else %}<tr><td colspan="5" style="color:#6b7280;text-align:center;padding:16px">Немає поїздок</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-5">
+    <div class="card mb-3">
+      <div class="card-header">⭐ Отримані оцінки ({{ ratings|length }})</div>
+      <div style="padding:12px 16px;display:flex;flex-wrap:wrap;gap:6px">
+        {% for r in ratings %}
+        <span class="badge px-2 py-1" style="font-size:12px;background:var(--input-bg);border:1px solid var(--sb-border);color:{{ '#4ade80' if r.score>=4 else '#fbbf24' if r.score==3 else '#f87171' }}">{{ r.score }}⭐</span>
+        {% else %}<span style="color:#6b7280">Ще немає оцінок</span>{% endfor %}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">📩 Звернення ({{ tickets|length }})</div>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <tbody>
+            {% for tk in tickets %}
+            <tr>
+              <td style="width:30px">{{ '🐞' if tk.type=='bug' else '💡' if tk.type=='improvement' else '⭐' if tk.type=='feedback' else '📞' }}</td>
+              <td>{{ tk.message[:80] }}{% if tk.message|length > 80 %}…{% endif %}</td>
+              <td style="color:#9ca3af;white-space:nowrap;width:60px">{{ tk.created_at.strftime('%d.%m') if tk.created_at else '' }}</td>
+            </tr>
+            {% else %}<tr><td style="color:#6b7280;text-align:center;padding:16px">Немає звернень</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

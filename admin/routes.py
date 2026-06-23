@@ -14,11 +14,14 @@ from services.timezone import now as _now
 import aiohttp_jinja2
 import jinja2
 from aiohttp import web
-from sqlalchemy import select, func
+from sqlalchemy import select, func, distinct, or_
 from sqlalchemy.orm import selectinload
 
 from database.database import AsyncSessionLocal
-from database.models import User, Trip, Match, SupportTicket, FAQ, BotSetting
+from database.models import (
+    User, Trip, Match, SupportTicket, FAQ, BotSetting, Rating,
+    DriverLocation, PassengerLocation,
+)
 
 ADMIN_TOKEN: str = os.getenv("ADMIN_TOKEN", "changeme")
 _COOKIE = "adm_s"
@@ -106,22 +109,76 @@ async def admin_logout(request: web.Request) -> web.Response:
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
+def _pct(part: int, whole: int) -> int:
+    """Integer percentage, safe against division by zero."""
+    return round(part / whole * 100) if whole else 0
+
+
 @_require_auth
 async def admin_dashboard(request: web.Request) -> web.Response:
+    now = _now()
     async with AsyncSessionLocal() as s:
-        users_total     = (await s.execute(select(func.count(User.id)))).scalar() or 0
-        users_blocked   = (await s.execute(select(func.count(User.id)).where(User.is_blocked == True))).scalar() or 0
-        trips_active    = (await s.execute(select(func.count(Trip.id)).where(Trip.status == "ACTIVE"))).scalar() or 0
-        trips_confirmed = (await s.execute(select(func.count(Trip.id)).where(Trip.status == "CONFIRMED"))).scalar() or 0
-        trips_closed    = (await s.execute(select(func.count(Trip.id)).where(Trip.status == "CLOSED"))).scalar() or 0
-        match_confirmed = (await s.execute(select(func.count(Match.id)).where(Match.status == "CONFIRMED"))).scalar() or 0
-        match_cancelled = (await s.execute(select(func.count(Match.id)).where(Match.status == "CANCELLED"))).scalar() or 0
-        match_closed    = (await s.execute(select(func.count(Match.id)).where(Match.status == "CLOSED"))).scalar() or 0
-        unread_tickets  = (await s.execute(select(func.count(SupportTicket.id)).where(SupportTicket.is_read == False))).scalar() or 0
+        async def cnt(model, *where):
+            q = select(func.count()).select_from(model)
+            for w in where:
+                q = q.where(w)
+            return (await s.execute(q)).scalar() or 0
+
+        users_total     = await cnt(User)
+        users_blocked   = await cnt(User, User.is_blocked == True)
+        trips_active    = await cnt(Trip, Trip.status == "ACTIVE")
+        trips_confirmed = await cnt(Trip, Trip.status == "CONFIRMED")
+        trips_closed    = await cnt(Trip, Trip.status == "CLOSED")
+        match_confirmed = await cnt(Match, Match.status == "CONFIRMED")
+        match_cancelled = await cnt(Match, Match.status == "CANCELLED")
+        match_closed    = await cnt(Match, Match.status == "CLOSED")
+        unread_tickets  = await cnt(SupportTicket, SupportTicket.is_read == False)
+
+        # ── Conversion funnel ──────────────────────────────────────────────
+        trips_total   = await cnt(Trip)
+        matches_total = await cnt(Match)
+        # Trips that ever got at least one match (driver OR passenger side)
+        d_ids = set((await s.execute(select(distinct(Match.driver_trip_id)))).scalars().all())
+        p_ids = set((await s.execute(select(distinct(Match.passenger_trip_id)))).scalars().all())
+        trips_matched = len(d_ids | p_ids)
+        # CONFIRMED + CLOSED = a deal was struck (CLOSED = completed)
+        matches_dealt    = await cnt(Match, Match.status.in_(["CONFIRMED", "CLOSED"]))
+        matches_departed = await cnt(Match, Match.driver_departed == True)
+        matches_rated    = (await s.execute(
+            select(func.count(distinct(Rating.match_id)))
+        )).scalar() or 0
+
+        funnel = [
+            ("Поїздок створено",   trips_total,      100),
+            ("Отримали матч",      trips_matched,    _pct(trips_matched, trips_total)),
+            ("Угоду укладено",     matches_dealt,    _pct(matches_dealt, trips_total)),
+            ("Виїзд відбувся",     matches_departed, _pct(matches_departed, trips_total)),
+            ("Оцінено",            matches_rated,    _pct(matches_rated, trips_total)),
+        ]
+
+        # ── Health KPIs ────────────────────────────────────────────────────
+        match_success = _pct(matches_dealt, matches_total)        # deals / all matches
+        completion    = _pct(matches_departed, matches_dealt)      # departed / deals
+        rating_cov    = _pct(matches_rated, matches_dealt)         # rated / deals
+
+        # ── Active users (distinct trip creators in window) ────────────────
+        async def active_since(days):
+            since = now - timedelta(days=days)
+            return (await s.execute(
+                select(func.count(distinct(Trip.user_id))).where(Trip.created_at >= since)
+            )).scalar() or 0
+        dau = await active_since(1)
+        wau = await active_since(7)
+        mau = await active_since(30)
+
+        # Avg rating across users who have one
+        avg_rating = (await s.execute(
+            select(func.avg(User.rating)).where(User.rating.isnot(None))
+        )).scalar()
 
         recent_trips = (await s.execute(
             select(Trip).options(selectinload(Trip.user))
-            .where(Trip.status.in_(["ACTIVE", "CONFIRMED", "MATCHING"]))
+            .where(Trip.status.in_(["ACTIVE", "CONFIRMED", "MATCHING", "BOARDING", "IN_PROGRESS"]))
             .order_by(Trip.created_at.desc()).limit(5)
         )).scalars().all()
 
@@ -137,6 +194,13 @@ async def admin_dashboard(request: web.Request) -> web.Response:
         "match_closed": match_closed,
         "unread_tickets": unread_tickets,
         "recent_trips": recent_trips,
+        # New analytics
+        "funnel": funnel,
+        "match_success": match_success,
+        "completion": completion,
+        "rating_cov": rating_cov,
+        "dau": dau, "wau": wau, "mau": mau,
+        "avg_rating": f"{avg_rating:.2f}" if avg_rating is not None else "—",
     }
     return aiohttp_jinja2.render_template("dashboard.html", request, ctx)
 
@@ -169,6 +233,37 @@ async def admin_trips(request: web.Request) -> web.Response:
     })
 
 
+@_require_auth
+async def admin_trip_detail(request: web.Request) -> web.Response:
+    tid = int(request.match_info["trip_id"])
+    async with AsyncSessionLocal() as s:
+        trip = await s.get(Trip, tid, options=[selectinload(Trip.user)])
+        if not trip:
+            raise web.HTTPFound("/admin/trips")
+        # All matches this trip participates in (either side)
+        matches = (await s.execute(
+            select(Match).options(
+                selectinload(Match.driver_trip).selectinload(Trip.user),
+                selectinload(Match.passenger_trip).selectinload(Trip.user),
+            ).where(or_(Match.driver_trip_id == tid, Match.passenger_trip_id == tid))
+            .order_by(Match.created_at.desc())
+        )).scalars().all()
+    return aiohttp_jinja2.render_template("trip_detail.html", request, {
+        "active": "trips", "t": trip, "matches": matches,
+    })
+
+
+@_require_auth
+async def admin_trip_close(request: web.Request) -> web.Response:
+    tid = int(request.match_info["trip_id"])
+    async with AsyncSessionLocal() as s:
+        trip = await s.get(Trip, tid)
+        if trip:
+            trip.status = "CLOSED"
+            await s.commit()
+    raise web.HTTPFound(request.headers.get("Referer", f"/admin/trips/{tid}"))
+
+
 # ── Users ─────────────────────────────────────────────────────────────────────
 
 @_require_auth
@@ -192,6 +287,48 @@ async def admin_users(request: web.Request) -> web.Response:
 
 
 @_require_auth
+async def admin_user_detail(request: web.Request) -> web.Response:
+    uid = int(request.match_info["user_id"])
+    async with AsyncSessionLocal() as s:
+        user = await s.get(User, uid)
+        if not user:
+            raise web.HTTPFound("/admin/users")
+        trips = (await s.execute(
+            select(Trip).where(Trip.user_id == uid).order_by(Trip.created_at.desc()).limit(30)
+        )).scalars().all()
+        # Ratings received
+        rrows = (await s.execute(
+            select(Rating).where(Rating.to_user_id == uid).order_by(Rating.created_at.desc()).limit(30)
+        )).scalars().all()
+        # Tickets
+        tickets = (await s.execute(
+            select(SupportTicket).where(SupportTicket.user_id == uid)
+            .order_by(SupportTicket.created_at.desc()).limit(20)
+        )).scalars().all()
+    return aiohttp_jinja2.render_template("user_detail.html", request, {
+        "active": "users", "u": user, "trips": trips,
+        "ratings": rrows, "tickets": tickets,
+        "sent": request.rel_url.query.get("sent"),
+    })
+
+
+@_require_auth
+async def admin_user_message(request: web.Request) -> web.Response:
+    uid = int(request.match_info["user_id"])
+    data = await request.post()
+    text = (data.get("text") or "").strip()
+    bot = request.app.get("bot")
+    ok = False
+    if text and bot:
+        try:
+            await bot.send_message(uid, text, parse_mode="HTML")
+            ok = True
+        except Exception:
+            ok = False
+    raise web.HTTPFound(f"/admin/users/{uid}?sent={'1' if ok else '0'}")
+
+
+@_require_auth
 async def admin_block_user(request: web.Request) -> web.Response:
     uid = int(request.match_info["user_id"])
     async with AsyncSessionLocal() as s:
@@ -199,7 +336,7 @@ async def admin_block_user(request: web.Request) -> web.Response:
         if user:
             user.is_blocked = True
             await s.commit()
-    raise web.HTTPFound("/admin/users")
+    raise web.HTTPFound(request.headers.get("Referer", "/admin/users"))
 
 
 @_require_auth
@@ -210,7 +347,7 @@ async def admin_unblock_user(request: web.Request) -> web.Response:
         if user:
             user.is_blocked = False
             await s.commit()
-    raise web.HTTPFound("/admin/users")
+    raise web.HTTPFound(request.headers.get("Referer", "/admin/users"))
 
 
 # ── Matches ───────────────────────────────────────────────────────────────────
@@ -231,6 +368,68 @@ async def admin_matches(request: web.Request) -> web.Response:
     return aiohttp_jinja2.render_template("matches.html", request, {
         "active": "matches", "matches": matches, "status_filter": status_filter,
     })
+
+
+@_require_auth
+async def admin_match_detail(request: web.Request) -> web.Response:
+    mid = int(request.match_info["match_id"])
+    async with AsyncSessionLocal() as s:
+        match = await s.get(Match, mid, options=[
+            selectinload(Match.driver_trip).selectinload(Trip.user),
+            selectinload(Match.passenger_trip).selectinload(Trip.user),
+        ])
+        if not match:
+            raise web.HTTPFound("/admin/matches")
+        d_loc = await s.get(DriverLocation, mid)
+        p_loc = await s.get(PassengerLocation, mid)
+    return aiohttp_jinja2.render_template("match_detail.html", request, {
+        "active": "matches", "m": match, "d_loc": d_loc, "p_loc": p_loc,
+        "done": request.rel_url.query.get("done"),
+    })
+
+
+@_require_auth
+async def admin_match_force(request: web.Request) -> web.Response:
+    """Admin forces a match to CONFIRMED or CANCELLED and notifies both sides."""
+    mid = int(request.match_info["match_id"])
+    action = request.match_info["action"]  # "confirm" | "cancel"
+    async with AsyncSessionLocal() as s:
+        m = await s.get(Match, mid)
+        if not m:
+            raise web.HTTPFound("/admin/matches")
+        driver = await s.get(Trip, m.driver_trip_id)
+        passenger = await s.get(Trip, m.passenger_trip_id)
+
+        if action == "confirm":
+            m.driver_confirmed = True
+            m.passenger_confirmed = True
+            m.status = "CONFIRMED"
+            if passenger:
+                passenger.status = "CONFIRMED"
+            if driver:
+                driver.status = "CONFIRMED"
+            note = "✅ <b>Адміністратор підтвердив вашу поїздку.</b>"
+        else:  # cancel
+            m.status = "CANCELLED"
+            m.cancelled_by = "admin"
+            if passenger and passenger.status in ("MATCHING", "CONFIRMED"):
+                passenger.status = "ACTIVE"
+            if driver and driver.status in ("MATCHING", "CONFIRMED", "BOARDING"):
+                driver.status = "ACTIVE"
+            note = "❌ <b>Адміністратор скасував цей матч.</b>"
+        d_uid = driver.user_id if driver else None
+        p_uid = passenger.user_id if passenger else None
+        await s.commit()
+
+    bot = request.app.get("bot")
+    if bot:
+        for uid in (d_uid, p_uid):
+            if uid:
+                try:
+                    await bot.send_message(uid, note, parse_mode="HTML")
+                except Exception:
+                    pass
+    raise web.HTTPFound(f"/admin/matches/{mid}?done={action}")
 
 
 # ── Tickets ───────────────────────────────────────────────────────────────────
@@ -516,6 +715,85 @@ async def admin_stats(request: web.Request) -> web.Response:
     })
 
 
+# ── Trust & Safety ────────────────────────────────────────────────────────────
+
+@_require_auth
+async def admin_safety(request: web.Request) -> web.Response:
+    async with AsyncSessionLocal() as s:
+        # Rating distribution 1..5
+        dist_rows = (await s.execute(
+            select(Rating.score, func.count()).group_by(Rating.score)
+        )).all()
+        dist = {i: 0 for i in range(1, 6)}
+        for score, c in dist_rows:
+            if score in dist:
+                dist[score] = c
+        total_ratings = sum(dist.values())
+        avg_rating = (await s.execute(
+            select(func.avg(Rating.score))
+        )).scalar()
+
+        # Per-user received-rating aggregate (avg + count)
+        agg = (await s.execute(
+            select(Rating.to_user_id, func.count(), func.avg(Rating.score))
+            .group_by(Rating.to_user_id)
+        )).all()
+        # Low-rated users: avg < 4.0 with at least 2 ratings received
+        low_ids = [uid for uid, c, avg in agg if avg is not None and avg < 4.0 and c >= 2]
+        agg_map = {uid: (c, avg) for uid, c, avg in agg}
+        low_users = []
+        if low_ids:
+            urows = (await s.execute(select(User).where(User.id.in_(low_ids)))).scalars().all()
+            for u in urows:
+                c, avg = agg_map.get(u.id, (0, None))
+                low_users.append({
+                    "id": u.id, "name": u.first_name, "username": u.username,
+                    "avg": round(avg, 2) if avg is not None else None, "count": c,
+                    "failed": u.failed_trips or 0, "blocked": u.is_blocked,
+                })
+            low_users.sort(key=lambda x: (x["avg"] if x["avg"] is not None else 9))
+
+        # Recent low ratings (≤2) with names
+        low_rows = (await s.execute(
+            select(Rating).where(Rating.score <= 2).order_by(Rating.created_at.desc()).limit(25)
+        )).scalars().all()
+        uid_set = set()
+        for r in low_rows:
+            uid_set.add(r.from_user_id); uid_set.add(r.to_user_id)
+        names = {}
+        if uid_set:
+            for u in (await s.execute(select(User).where(User.id.in_(uid_set)))).scalars().all():
+                names[u.id] = u.first_name or str(u.id)
+        recent_low = [{
+            "score": r.score,
+            "from": names.get(r.from_user_id, str(r.from_user_id)),
+            "to": names.get(r.to_user_id, str(r.to_user_id)),
+            "to_id": r.to_user_id,
+            "match_id": r.match_id,
+            "date": r.created_at.strftime("%d.%m %H:%M") if r.created_at else "",
+        } for r in low_rows]
+
+        # Most-cancelled users (by User.failed_trips)
+        worst = (await s.execute(
+            select(User).where(User.failed_trips > 0)
+            .order_by(User.failed_trips.desc()).limit(10)
+        )).scalars().all()
+        worst_users = [{
+            "id": u.id, "name": u.first_name, "username": u.username,
+            "failed": u.failed_trips or 0, "success": u.successful_trips or 0,
+            "blocked": u.is_blocked,
+        } for u in worst]
+
+    return aiohttp_jinja2.render_template("safety.html", request, {
+        "active": "safety",
+        "dist": dist, "total_ratings": total_ratings,
+        "avg_rating": f"{avg_rating:.2f}" if avg_rating is not None else "—",
+        "low_users": low_users,
+        "recent_low": recent_low,
+        "worst_users": worst_users,
+    })
+
+
 # ── Manual Match ──────────────────────────────────────────────────────────────
 
 @_require_auth
@@ -732,10 +1010,17 @@ def setup_admin(app: web.Application) -> None:
     app.router.add_get("/admin",         lambda r: web.HTTPFound("/admin/"))
     app.router.add_get("/admin/",        admin_dashboard)
     app.router.add_get("/admin/trips",   admin_trips)
+    app.router.add_get("/admin/trips/{trip_id:\\d+}",        admin_trip_detail)
+    app.router.add_post("/admin/trips/{trip_id:\\d+}/close", admin_trip_close)
     app.router.add_get("/admin/users",   admin_users)
+    app.router.add_get("/admin/users/{user_id:\\d+}",         admin_user_detail)
+    app.router.add_post("/admin/users/{user_id}/message",     admin_user_message)
     app.router.add_post("/admin/users/{user_id}/block",   admin_block_user)
     app.router.add_post("/admin/users/{user_id}/unblock", admin_unblock_user)
     app.router.add_get("/admin/matches", admin_matches)
+    app.router.add_get("/admin/matches/{match_id:\\d+}",                 admin_match_detail)
+    app.router.add_post("/admin/matches/{match_id:\\d+}/{action}",       admin_match_force)
+    app.router.add_get("/admin/safety",  admin_safety)
     app.router.add_get("/admin/tickets", admin_tickets)
     app.router.add_post("/admin/tickets/{ticket_id}/read", admin_ticket_read)
     app.router.add_get("/admin/faq",     admin_faq)
