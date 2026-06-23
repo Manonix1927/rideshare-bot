@@ -116,6 +116,16 @@ def _detect_city(text: str) -> tuple[str | None, tuple[float, float] | None, str
     return None, None, text
 
 
+def _city_of(a: dict) -> str:
+    """
+    Pick the cleanest settlement name from a Nominatim address dict.
+    Prefers concrete settlement (city/town/village) over administrative
+    aggregates (municipality), so we show "Боярка", not "Боярська міська громада".
+    """
+    return (a.get("city") or a.get("town") or a.get("village")
+            or a.get("municipality") or "")
+
+
 def _format_address(raw: dict) -> str:
     """
     Format Nominatim raw address dict into a short human-readable string.
@@ -128,7 +138,7 @@ def _format_address(raw: dict) -> str:
                 or a.get("square") or a.get("place") or "")
     house    = a.get("house_number", "")
     district = a.get("city_district") or a.get("suburb") or ""
-    city     = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or ""
+    city     = _city_of(a)
 
     parts = []
     if road:
@@ -169,6 +179,35 @@ async def _geocode_dict(street: str, city: str | None = None) -> Optional[object
                 return result
         except (GeocoderTimedOut, GeocoderServiceError):
             return None
+    return None
+
+
+async def _geocode_in_city(query: str, city: str) -> Optional[object]:
+    """
+    Geocode a street strictly within `city`. Returns a geopy Location whose
+    settlement actually matches `city`, or None.
+
+    If the exact house number isn't present on that street in the city, Nominatim's
+    structured search silently jumps to another city where it exists (e.g. house 10
+    on "Святошинська" lives in Вишневе, not Київ). To prevent that, we verify the
+    returned city and, on mismatch, retry with the house number stripped so the
+    result is pinned to the street centroid in the requested city. The caller then
+    injects the original house number into the display string.
+    """
+    city_l = city.lower()
+    for q in (query, "вулиця " + query):
+        loc = await _geocode_dict(q, city)
+        if loc and city_l in _city_of(loc.raw.get("address", {})).lower():
+            return loc
+
+    m = _HOUSE_RE.search(query)
+    if m:
+        street_only = (query[:m.start()] + query[m.end():]).strip().strip(",").strip()
+        if street_only and street_only != query:
+            for q in (street_only, "вулиця " + street_only):
+                loc = await _geocode_dict(q, city)
+                if loc and city_l in _city_of(loc.raw.get("address", {})).lower():
+                    return loc
     return None
 
 
@@ -248,7 +287,7 @@ async def geocode_address_multi(
     """
     loop = asyncio.get_event_loop()
 
-    _, city_coords, _ = _detect_city(address)
+    city_name, city_coords, street_only = _detect_city(address)
 
     # Dynamic detection: "м. Бориспіль", "місто Васильків", etc.
     # _dyn_cleaned = address without the "місто CityName" prefix (street-only part)
@@ -259,141 +298,127 @@ async def geocode_address_multi(
         if _dyn_city:
             city_coords = await _geocode_city(_dyn_city)
 
+    # Did the user explicitly name a city anywhere in the query?
+    explicit_city = city_name or _dyn_city
+
+    # Bias center: explicit city > current location > user's saved home city.
     vb_lat, vb_lon = None, None
     if city_coords:
         vb_lat, vb_lon = city_coords
     elif near_lat is not None and near_lon is not None:
         vb_lat, vb_lon = near_lat, near_lon
     elif home_city:
-        home_coords = _UA_CITIES.get(home_city.lower())
-        if home_coords:
-            vb_lat, vb_lon = home_coords
+        vb_lat, vb_lon = _UA_CITIES.get(home_city.lower(), (None, None))
+        if vb_lat is None:
+            # home_city not in the hardcoded list — geocode it for a viewbox
+            coords = await _geocode_city(home_city)
+            if coords:
+                vb_lat, vb_lon = coords
 
-    kwargs: dict = {
-        "country_codes": "ua",
-        "language": "uk",
-        "addressdetails": True,
-        "exactly_one": False,
-        "limit": 5,
-    }
-    if vb_lat is not None:
-        kwargs["viewbox"] = [
-            (vb_lat + _VIEWBOX_DEG, vb_lon - _VIEWBOX_DEG),
-            (vb_lat - _VIEWBOX_DEG, vb_lon + _VIEWBOX_DEG),
-        ]
-        kwargs["bounded"] = False
+    def _kwargs() -> dict:
+        k: dict = {
+            "country_codes": "ua",
+            "language": "uk",
+            "addressdetails": True,
+            "exactly_one": False,
+            "limit": 20,   # high limit so dedup can still surface up to 5 distinct cities
+        }
+        if vb_lat is not None:
+            k["viewbox"] = [
+                (vb_lat + _VIEWBOX_DEG, vb_lon - _VIEWBOX_DEG),
+                (vb_lat - _VIEWBOX_DEG, vb_lon + _VIEWBOX_DEG),
+            ]
+            k["bounded"] = False
+        return k
 
-    try:
-        results = await loop.run_in_executor(
-            None, lambda: _geocoder.geocode(address, **kwargs)
-        ) or []
-    except (GeocoderTimedOut, GeocoderServiceError):
-        results = []
-
-    # Retry with "вулиця " prefix if bare genitive form wasn't found
-    if not results:
+    async def _search(query: str) -> list:
         try:
-            results = await loop.run_in_executor(
-                None, lambda: _geocoder.geocode("вулиця " + address, **kwargs)
+            r = await loop.run_in_executor(
+                None, lambda: _geocoder.geocode(query, **_kwargs())
             ) or []
         except (GeocoderTimedOut, GeocoderServiceError):
-            results = []
+            return []
+        return r if isinstance(r, list) else [r]
 
-    # If dynamic city was extracted, retry Nominatim with the cleaned street + city
-    # e.g. "Вулиця головатого 9 місто бориспіль" → "Вулиця головатого 9, бориспіль"
-    if not results and _dyn_city and _dyn_cleaned != address:
-        _clean_q = f"{_dyn_cleaned}, {_dyn_city}"
-        try:
-            results = await loop.run_in_executor(
-                None, lambda: _geocoder.geocode(_clean_q, **kwargs)
-            ) or []
-        except (GeocoderTimedOut, GeocoderServiceError):
-            results = []
+    # Collect raw results from several query variants to maximise city coverage.
+    # Both the bare query and the "вулиця "-prefixed form (handles genitive street
+    # names like "Головатого" that Nominatim otherwise misranks).
+    raw = await _search(address)
+    raw += await _search("вулиця " + address)
+    if _dyn_city and _dyn_cleaned != address:
+        raw += await _search(f"{_dyn_cleaned}, {_dyn_city}")
 
-    if not isinstance(results, list):
-        results = [results]
-
-    seen_cities: set[str] = set()
+    # Dedup by geographic proximity (~5 km) rather than by city string. This collapses
+    # near-duplicates that share coordinates ("Боярка" / "Боярська міська громада") while
+    # keeping genuinely different cities apart — and yields more distinct city buttons.
     unique: list[tuple[float, float, str, str]] = []
-    for loc in results:
-        a = loc.raw.get("address", {})
-        city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or ""
-        formatted = _format_address(loc.raw)
-        # Skip empty or vague results
-        if not formatted or formatted == "Невідома адреса":
-            continue
-        # Dedup by city; allow city-less results if address has street info
-        dedup_key = city or formatted
-        if dedup_key in seen_cities:
-            continue
-        seen_cities.add(dedup_key)
-        unique.append((loc.latitude, loc.longitude, formatted, city))
 
-    # If exactly one city found — try structured dict search to get house number
-    city_name, _, street_only = _detect_city(address)
-    known_city = city_name or (home_city if unique and unique[0][3] else None)
+    def _add(lat: float, lon: float, formatted: str, city: str, *, front: bool = False) -> bool:
+        if not formatted or formatted == "Невідома адреса":
+            return False
+        for u_lat, u_lon, _, _ in unique:
+            if haversine_km(lat, lon, u_lat, u_lon) < 5.0:
+                return False
+        item = (lat, lon, formatted, city)
+        unique.insert(0, item) if front else unique.append(item)
+        return True
+
+    for loc in raw:
+        if len(unique) >= 5:
+            break
+        _add(loc.latitude, loc.longitude, _format_address(loc.raw),
+             _city_of(loc.raw.get("address", {})))
+
+    # Enrich a single result with a house number via structured search.
+    known_city = explicit_city or (home_city if (len(unique) == 1 and unique[0][3]) else None)
     if len(unique) == 1 and known_city:
-        street_q = street_only if city_name else address
+        street_q = _dyn_cleaned if _dyn_city else (street_only if city_name else address)
         dict_loc = await _geocode_dict(street_q, known_city)
         if dict_loc and dict_loc.raw.get("address", {}).get("house_number"):
             a = dict_loc.raw.get("address", {})
-            city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or unique[0][3]
-            unique[0] = (dict_loc.latitude, dict_loc.longitude, _format_address(dict_loc.raw), city)
+            unique[0] = (dict_loc.latitude, dict_loc.longitude,
+                         _format_address(dict_loc.raw), _city_of(a) or unique[0][3])
 
-    # Structured dict search with dynamically extracted city
-    # Covers: "Вулиця головатого 9 місто Бориспіль" → street="Вулиця головатого 9", city="Бориспіль"
-    if not unique and _dyn_city and _dyn_cleaned and _dyn_cleaned != address:
-        dict_loc = await _geocode_dict(_dyn_cleaned, _dyn_city)
-        if not dict_loc:
-            dict_loc = await _geocode_dict("вулиця " + _dyn_cleaned, _dyn_city)
+    # Structured dict fallback with the dynamically extracted city.
+    if not unique and _dyn_city and _dyn_cleaned != address:
+        dict_loc = (await _geocode_dict(_dyn_cleaned, _dyn_city)
+                    or await _geocode_dict("вулиця " + _dyn_cleaned, _dyn_city))
         if dict_loc:
             a = dict_loc.raw.get("address", {})
-            _c = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or _dyn_city
-            if _c not in seen_cities:
-                seen_cities.add(_c)
-                unique.append((dict_loc.latitude, dict_loc.longitude, _format_address(dict_loc.raw), _c))
+            _add(dict_loc.latitude, dict_loc.longitude,
+                 _format_address(dict_loc.raw), _city_of(a) or _dyn_city)
 
-    # Last resort: structured dict search with home_city when free-text failed completely
-    if not unique and home_city:
-        dict_loc = await _geocode_dict(address, home_city)
-        if not dict_loc:
-            dict_loc = await _geocode_dict("вулиця " + address, home_city)
-        if dict_loc:
-            a = dict_loc.raw.get("address", {})
-            city = a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or home_city
-            unique.append((dict_loc.latitude, dict_loc.longitude, _format_address(dict_loc.raw), city))
+    # Guarantee the user's saved home city is offered (and shown first) when they did
+    # NOT name a city — for a bare street this is the strongest signal we have.
+    if home_city and not explicit_city:
+        hc = home_city.lower()
+        if not any(c and hc in c.lower() for _, _, _, c in unique):
+            hc_loc = await _geocode_in_city(address, home_city)
+            if hc_loc:
+                a = hc_loc.raw.get("address", {})
+                _add(hc_loc.latitude, hc_loc.longitude,
+                     _inject_housenumber(address, _format_address(hc_loc.raw)),
+                     _city_of(a) or home_city, front=True)
 
-    # Kyiv explicit check: when no city is in the query, Nominatim country-wide results
-    # may miss Kyiv (e.g. "Святошинська 10" returns only suburb results, not Kyiv itself;
-    # "Щекавицька 45" finds nothing without a city hint). Always try Kyiv structured search
-    # when no city was specified and Kyiv is not already among the results.
-    if not city_coords and not _dyn_city:
-        kyiv_in = any(c and "київ" in c.lower() for _, _, _, c in unique)
-        if not kyiv_in and len(unique) < 5:
-            kyiv_loc = await _geocode_dict(address, "київ")
-            if not kyiv_loc:
-                kyiv_loc = await _geocode_dict("вулиця " + address, "київ")
+    # Fallback to Kyiv when no city was named and the user has no saved home city.
+    if not explicit_city and not home_city and len(unique) < 5:
+        if not any(c and "київ" in c.lower() for _, _, _, c in unique):
+            kyiv_loc = await _geocode_in_city(address, "київ")
             if kyiv_loc:
                 a = kyiv_loc.raw.get("address", {})
-                c = (a.get("city") or a.get("town") or a.get("municipality")
-                     or a.get("village") or "Київ")
-                if c not in seen_cities:
-                    seen_cities.add(c)
-                    unique.insert(0, (kyiv_loc.latitude, kyiv_loc.longitude,
-                                      _format_address(kyiv_loc.raw), c))
+                _add(kyiv_loc.latitude, kyiv_loc.longitude,
+                     _inject_housenumber(address, _format_address(kyiv_loc.raw)),
+                     _city_of(a) or "Київ", front=True)
 
-    # Photon fallback — fuzzy matching catches typos and abbreviations Nominatim misses
+    # Photon fallback — fuzzy matching catches typos and abbreviations Nominatim misses.
     if not unique:
         _photon_q = f"{_dyn_cleaned}, {_dyn_city}" if (_dyn_city and _dyn_cleaned != address) else address
-        photon_results = await _photon_geocode(_photon_q, vb_lat, vb_lon)
-        for p_lat, p_lon, p_display, p_city in photon_results:
-            # Allow results even without a city field — use display as dedup key
-            dedup_key = p_city or p_display
-            if dedup_key and dedup_key not in seen_cities:
-                seen_cities.add(dedup_key)
-                unique.append((p_lat, p_lon, _inject_housenumber(address, p_display), p_city))
+        for p_lat, p_lon, p_display, p_city in await _photon_geocode(_photon_q, vb_lat, vb_lon):
+            if len(unique) >= 5:
+                break
+            _add(p_lat, p_lon, _inject_housenumber(address, p_display), p_city)
 
-    # Inject user-typed house number if OSM didn't return one
+    # Inject user-typed house number into the primary result if OSM omitted it.
     if unique:
         lat, lon, disp, city = unique[0]
         unique[0] = (lat, lon, _inject_housenumber(address, disp), city)
@@ -528,8 +553,7 @@ async def get_city_from_coords(lat: float, lon: float) -> str:
             None, lambda: _geocoder.reverse((lat, lon), language="uk")
         )
         if loc and loc.raw.get("address"):
-            a = loc.raw["address"]
-            return a.get("city") or a.get("town") or a.get("municipality") or a.get("village") or ""
+            return _city_of(loc.raw["address"])
     except (GeocoderTimedOut, GeocoderServiceError):
         pass
     return ""
