@@ -9,7 +9,7 @@ import aiohttp
 from geopy.geocoders import Nominatim, Photon
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 
-from config import NOMINATIM_UA, GOOGLE_MAPS_API_KEY
+from config import NOMINATIM_UA, GOOGLE_MAPS_API_KEY, OSM_FALLBACK_ENABLED
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +23,19 @@ _GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 _GOOGLE_COOLDOWN_SEC = 600  # 10 minutes
 _google_cooldown_until = 0.0
 
+# OSM is used when explicitly enabled, OR always when there's no Google key
+# (so geocoding never dies just because the key was removed).
+_OSM_ACTIVE = OSM_FALLBACK_ENABLED or not GOOGLE_MAPS_API_KEY
+
 # Startup diagnostic — makes it obvious in Railway logs whether the running
 # process actually sees the key (vs. an old deploy / empty env var).
 # WARNING level so it survives even though this module is imported before
 # main.py calls logging.basicConfig() (Python emits WARNING+ to stderr by default).
 logger.warning(
-    "Geocoder init: Google=%s",
+    "Geocoder init: Google=%s | OSM fallback=%s",
     f"ENABLED (key …{GOOGLE_MAPS_API_KEY[-4:]})" if GOOGLE_MAPS_API_KEY
-    else "DISABLED — no GOOGLE_MAPS_API_KEY, using OSM only",
+    else "DISABLED — no GOOGLE_MAPS_API_KEY",
+    "ON" if OSM_FALLBACK_ENABLED else "OFF",
 )
 
 # Viewbox half-size in degrees (~50 km)
@@ -474,6 +479,9 @@ async def geocode_address_multi(
     if google:
         return google
 
+    if not _OSM_ACTIVE:
+        return []  # OSM fallback off — show "not found" instead of fuzzy villages
+
     loop = asyncio.get_event_loop()
 
     city_name, city_coords, street_only = _detect_city(address)
@@ -666,6 +674,9 @@ async def geocode_address(
     if google:
         lat, lon, display, _city = google[0]
         return lat, lon, display
+
+    if not _OSM_ACTIVE:
+        return None  # OSM fallback off — report "not found" rather than a fuzzy match
 
     loop = asyncio.get_event_loop()
 
