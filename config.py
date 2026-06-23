@@ -13,6 +13,10 @@ DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 REDIS_URL: str = os.getenv("REDIS_URL", "")
 NOMINATIM_UA: str = os.getenv("NOMINATIM_UA", "rideshare_bot_v1")
 
+# Google Geocoding API key — primary geocoder for manual address input.
+# Falls back to free OSM (Nominatim/Photon) when empty or quota exhausted.
+GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
+
 # Public URL of this service (Railway sets RAILWAY_PUBLIC_DOMAIN automatically)
 _domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
 API_URL: str = f"https://{_domain}" if _domain else os.getenv("API_URL", "")

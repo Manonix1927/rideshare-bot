@@ -1,14 +1,24 @@
 import math
 import asyncio
+import logging
 import re
 from typing import Optional
+
+import aiohttp
 from geopy.geocoders import Nominatim, Photon
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 
-from config import NOMINATIM_UA
+from config import NOMINATIM_UA, GOOGLE_MAPS_API_KEY
+
+logger = logging.getLogger(__name__)
 
 _geocoder = Nominatim(user_agent=NOMINATIM_UA, timeout=10)
 _photon   = Photon(user_agent=NOMINATIM_UA, timeout=10)
+
+_GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+# Set False after a hard auth/billing failure so we stop hammering Google and
+# go straight to OSM for the rest of the process lifetime.
+_google_enabled = bool(GOOGLE_MAPS_API_KEY)
 
 # Viewbox half-size in degrees (~50 km)
 _VIEWBOX_DEG = 0.5
@@ -279,6 +289,106 @@ async def _photon_geocode(
     return output
 
 
+def _google_component(components: list, *types: str) -> str:
+    """Pick the long_name of the first address component matching any given type."""
+    for comp in components:
+        if any(t in comp.get("types", []) for t in types):
+            return comp.get("long_name", "")
+    return ""
+
+
+def _google_format(result: dict) -> tuple[str, str]:
+    """
+    Build ("вул. Хрещатик, 22, Київ", "Київ") from a Google geocode result.
+    Returns (display, city).
+    """
+    comps = result.get("address_components", [])
+    route   = _google_component(comps, "route")
+    house   = _google_component(comps, "street_number")
+    city    = (_google_component(comps, "locality")
+               or _google_component(comps, "administrative_area_level_2")
+               or _google_component(comps, "administrative_area_level_1"))
+
+    parts = []
+    if route:
+        parts.append(f"{route}, {house}".rstrip(", ") if house else route)
+    if city:
+        parts.append(city)
+    display = ", ".join(p for p in parts if p)
+    # Fallback to Google's formatted_address (minus country/postcode noise)
+    if not display:
+        display = result.get("formatted_address", "").replace(", Україна", "").strip()
+    return display or "Невідома адреса", city
+
+
+async def _google_geocode(
+    address: str,
+    near_lat: float | None = None,
+    near_lon: float | None = None,
+    home_city: str | None = None,
+) -> list[tuple[float, float, str, str]]:
+    """
+    Geocode via Google Geocoding API. Returns [(lat, lon, display, city), ...].
+    Empty list on any failure (missing key, quota, network) so callers fall back
+    to OSM. Restricted to Ukraine; softly biased toward a city center when known.
+    """
+    global _google_enabled
+    if not _google_enabled:
+        return []
+
+    params = {
+        "address": address,
+        "key": GOOGLE_MAPS_API_KEY,
+        "language": "uk",
+        "region": "ua",
+        "components": "country:UA",
+    }
+
+    # Soft bias (not restriction): explicit near-point > home city center.
+    bias_lat, bias_lon = None, None
+    if near_lat is not None and near_lon is not None:
+        bias_lat, bias_lon = near_lat, near_lon
+    elif home_city:
+        bias_lat, bias_lon = _UA_CITIES.get(home_city.lower(), (None, None))
+    if bias_lat is not None:
+        d = _VIEWBOX_DEG
+        params["bounds"] = f"{bias_lat - d},{bias_lon - d}|{bias_lat + d},{bias_lon + d}"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(_GOOGLE_GEOCODE_URL, params=params,
+                                   timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                data = await resp.json()
+    except Exception as e:
+        logger.warning("Google geocode network error: %s", e)
+        return []
+
+    status = data.get("status")
+    if status in ("REQUEST_DENIED", "OVER_DAILY_LIMIT", "OVER_QUERY_LIMIT"):
+        # Hard failure (bad key / billing / quota) — stop using Google this run.
+        logger.error("Google geocode disabled, status=%s msg=%s",
+                     status, data.get("error_message", ""))
+        _google_enabled = False
+        return []
+    if status != "OK":
+        return []  # ZERO_RESULTS etc. — soft miss, let OSM try
+
+    out: list[tuple[float, float, str, str]] = []
+    for r in data.get("results", []):
+        loc = r.get("geometry", {}).get("location", {})
+        lat, lon = loc.get("lat"), loc.get("lng")
+        if lat is None or lon is None:
+            continue
+        display, city = _google_format(r)
+        # Dedup by ~5 km proximity so the same street in one city isn't repeated.
+        if any(haversine_km(lat, lon, u[0], u[1]) < 5.0 for u in out):
+            continue
+        out.append((lat, lon, display, city))
+        if len(out) >= 5:
+            break
+    return out
+
+
 async def geocode_address_multi(
     address: str,
     near_lat: float | None = None,
@@ -290,6 +400,13 @@ async def geocode_address_multi(
     Used to offer city disambiguation when the same street exists in multiple cities.
     home_city biases results toward user's known city when no city is explicit in query.
     """
+    # Google first — its geocoder resolves cities far more reliably than OSM and
+    # usually returns the single correct match (so no city picker needed). Falls
+    # back to the OSM logic below when Google is unavailable or returns nothing.
+    google = await _google_geocode(address, near_lat, near_lon, home_city)
+    if google:
+        return google
+
     loop = asyncio.get_event_loop()
 
     city_name, city_coords, street_only = _detect_city(address)
@@ -472,10 +589,17 @@ async def geocode_address(
     Return (lat, lon, display_name) or None.
 
     Strategy (in order):
+    0. Google Geocoding API (primary, most accurate).
     1. If user mentioned a known Ukrainian city — structured geocode (street + city).
     2. Biased free-text search inside viewbox of that city (or near_lat/near_lon).
     3. Country-wide free-text fallback.
     """
+    # Google first — fall through to OSM when unavailable / no result.
+    google = await _google_geocode(address, near_lat, near_lon)
+    if google:
+        lat, lon, display, _city = google[0]
+        return lat, lon, display
+
     loop = asyncio.get_event_loop()
 
     city_name, city_coords, street_only = _detect_city(address)
