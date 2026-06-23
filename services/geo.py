@@ -25,7 +25,9 @@ _google_cooldown_until = 0.0
 
 # Startup diagnostic — makes it obvious in Railway logs whether the running
 # process actually sees the key (vs. an old deploy / empty env var).
-logger.info(
+# WARNING level so it survives even though this module is imported before
+# main.py calls logging.basicConfig() (Python emits WARNING+ to stderr by default).
+logger.warning(
     "Geocoder init: Google=%s",
     f"ENABLED (key …{GOOGLE_MAPS_API_KEY[-4:]})" if GOOGLE_MAPS_API_KEY
     else "DISABLED — no GOOGLE_MAPS_API_KEY, using OSM only",
