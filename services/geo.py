@@ -365,40 +365,18 @@ def _google_format(result: dict) -> tuple[str, str]:
     return display or "Невідома адреса", city
 
 
-async def _google_geocode(
-    address: str,
-    near_lat: float | None = None,
-    near_lon: float | None = None,
-    home_city: str | None = None,
-) -> list[tuple[float, float, str, str]]:
-    """
-    Geocode via Google Geocoding API. Returns [(lat, lon, display, city), ...].
-    Empty list on any failure (missing key, quota, network) so callers fall back
-    to OSM. Restricted to Ukraine; softly biased toward a city center when known.
-    """
+async def _google_call(query: str, bounds: str | None) -> list[tuple[float, float, str, str]]:
+    """One Google Geocoding API request → filtered [(lat, lon, display, city), ...]."""
     global _google_cooldown_until
-    if not GOOGLE_MAPS_API_KEY:
-        return []
-    if time.monotonic() < _google_cooldown_until:
-        return []  # in cooldown after a recent failure — use OSM for now
-
     params = {
-        "address": address,
+        "address": query,
         "key": GOOGLE_MAPS_API_KEY,
         "language": "uk",
         "region": "ua",
         "components": "country:UA",
     }
-
-    # Soft bias (not restriction): explicit near-point > home city center.
-    bias_lat, bias_lon = None, None
-    if near_lat is not None and near_lon is not None:
-        bias_lat, bias_lon = near_lat, near_lon
-    elif home_city:
-        bias_lat, bias_lon = _UA_CITIES.get(home_city.lower(), (None, None))
-    if bias_lat is not None:
-        d = _VIEWBOX_DEG
-        params["bounds"] = f"{bias_lat - d},{bias_lon - d}|{bias_lat + d},{bias_lon + d}"
+    if bounds:
+        params["bounds"] = bounds
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -418,10 +396,8 @@ async def _google_geocode(
         _google_cooldown_until = time.monotonic() + _GOOGLE_COOLDOWN_SEC
         return []
     if status != "OK":
-        logger.info("Google geocode %r status=%s — falling back to OSM", address, status)
-        return []  # ZERO_RESULTS etc. — soft miss, let OSM try
+        return []  # ZERO_RESULTS etc. — soft miss
 
-    logger.info("Google geocode OK: %r (%d raw)", address, len(data.get("results", [])))
     out: list[tuple[float, float, str, str]] = []
     for r in data.get("results", []):
         if not _google_is_usable(r):
@@ -437,6 +413,46 @@ async def _google_geocode(
         out.append((lat, lon, display, city))
         if len(out) >= 5:
             break
+    return out
+
+
+async def _google_geocode(
+    address: str,
+    near_lat: float | None = None,
+    near_lon: float | None = None,
+    home_city: str | None = None,
+) -> list[tuple[float, float, str, str]]:
+    """
+    Geocode via Google Geocoding API. Returns [(lat, lon, display, city), ...].
+    Empty list on any failure (missing key, quota, network) so callers fall back
+    to OSM. Restricted to Ukraine; softly biased toward a city center when known.
+    """
+    if not GOOGLE_MAPS_API_KEY:
+        return []
+    if time.monotonic() < _google_cooldown_until:
+        return []  # in cooldown after a recent failure — use OSM for now
+
+    # Soft bias (not restriction): explicit near-point > home city center.
+    bias_lat, bias_lon = None, None
+    if near_lat is not None and near_lon is not None:
+        bias_lat, bias_lon = near_lat, near_lon
+    elif home_city:
+        bias_lat, bias_lon = _UA_CITIES.get(home_city.lower(), (None, None))
+    bounds = None
+    if bias_lat is not None:
+        d = _VIEWBOX_DEG
+        bounds = f"{bias_lat - d},{bias_lon - d}|{bias_lat + d},{bias_lon + d}"
+
+    out = await _google_call(address, bounds)
+
+    # Bare street surname in the nominative ("Жмаченко") fuzzy-matches to a region;
+    # the "вулиця " prefix forces a street interpretation ("вулиця Жмаченко" →
+    # "вул. Генерала Жмаченка"). Retry only when the plain query found nothing usable
+    # and the user didn't already type a street-type word.
+    if not out and not _STREET_PREFIXES.match(address.strip()):
+        out = await _google_call(f"вулиця {address}", bounds)
+
+    logger.info("Google geocode %r -> %d result(s)", address, len(out))
     return out
 
 
