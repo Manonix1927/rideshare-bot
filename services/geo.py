@@ -110,8 +110,13 @@ def _detect_city(text: str) -> tuple[str | None, tuple[float, float] | None, str
         # Match as whole word(s)
         pattern = r"(?<![а-яіїєа-я])" + re.escape(city) + r"(?![а-яіїєа-я])"
         if re.search(pattern, lower):
-            # Remove the city name (and surrounding punctuation/spaces) from query
-            cleaned = re.sub(r",?\s*" + re.escape(city) + r"\s*,?", "", text, flags=re.IGNORECASE).strip().strip(",").strip()
+            # Remove the city name plus an optional preceding city-type prefix
+            # ("місто Київ", "м. Київ", "смт Київ") so the leftover street query
+            # doesn't carry a dangling "місто" that breaks structured search.
+            cleaned = re.sub(
+                r",?\s*(?:місто|м\.?|смт\.?|мст\.?)?\s*" + re.escape(city) + r"\s*,?",
+                "", text, flags=re.IGNORECASE,
+            ).strip().strip(",").strip()
             return city, coords, cleaned
     return None, None, text
 
@@ -300,6 +305,22 @@ async def geocode_address_multi(
 
     # Did the user explicitly name a city anywhere in the query?
     explicit_city = city_name or _dyn_city
+
+    # User explicitly named a city → pin the result to that city and skip the
+    # multi-city disambiguation picker entirely. Without this a query like
+    # "Святошинська, 10, Київ" would still surface the same street from Вишневе,
+    # Глеваха, etc., forcing a pointless "оберіть місто" prompt.
+    if explicit_city:
+        street_q = _dyn_cleaned if _dyn_city else (street_only or address)
+        loc = await _geocode_in_city(street_q, explicit_city)
+        if loc:
+            a = loc.raw.get("address", {})
+            return [(
+                loc.latitude, loc.longitude,
+                _inject_housenumber(street_q, _format_address(loc.raw)),
+                _city_of(a) or explicit_city,
+            )]
+        # In-city lookup failed — fall through to the broad search below.
 
     # Bias center: explicit city > current location > user's saved home city.
     vb_lat, vb_lon = None, None
