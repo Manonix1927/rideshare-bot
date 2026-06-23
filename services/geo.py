@@ -315,20 +315,20 @@ _GOOGLE_SPECIFIC_TYPES = {
     "street_address", "premise", "subpremise", "route", "intersection",
     "establishment", "point_of_interest", "transit_station", "park", "airport",
 }
-# Result types that are too coarse to use as a pickup point on their own
-# (a whole region or the country) — e.g. fuzzy "Либідська" → "Слобідська Україна".
-_GOOGLE_COARSE_TYPES = {
-    "country", "administrative_area_level_1",
-    "administrative_area_level_2", "administrative_area_level_3",
+# Allowlist: only accept results whose types include something concrete enough
+# to be a pickup point — a real address/POI, a city, or a city district.
+# Everything else (country, administrative_area_*, colloquial_area, political-only)
+# is a fuzzy region match and gets dropped, e.g. typo "Либідьська" → "Слобідська
+# Україна" (colloquial_area). Falls back to OSM, which is better than a wrong region.
+_GOOGLE_OK_TYPES = _GOOGLE_SPECIFIC_TYPES | {
+    "locality", "sublocality", "sublocality_level_1",
+    "neighborhood", "postal_code", "plus_code",
 }
 
 
 def _google_is_usable(result: dict) -> bool:
-    """Reject region/country-level matches that aren't a real address or place."""
-    types = set(result.get("types", []))
-    if types & _GOOGLE_COARSE_TYPES and not (types & _GOOGLE_SPECIFIC_TYPES):
-        return False
-    return True
+    """Accept only concrete address/POI/city/district results, reject fuzzy regions."""
+    return bool(set(result.get("types", [])) & _GOOGLE_OK_TYPES)
 
 
 def _google_format(result: dict) -> tuple[str, str]:
