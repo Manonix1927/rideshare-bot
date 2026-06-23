@@ -2,6 +2,7 @@ import math
 import asyncio
 import logging
 import re
+import time
 from typing import Optional
 
 import aiohttp
@@ -16,9 +17,11 @@ _geocoder = Nominatim(user_agent=NOMINATIM_UA, timeout=10)
 _photon   = Photon(user_agent=NOMINATIM_UA, timeout=10)
 
 _GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
-# Set False after a hard auth/billing failure so we stop hammering Google and
-# go straight to OSM for the rest of the process lifetime.
-_google_enabled = bool(GOOGLE_MAPS_API_KEY)
+# After a hard auth/billing failure we pause Google for a cooldown and use OSM,
+# then automatically retry. This way a transient denial (e.g. restriction change
+# still propagating) self-heals without needing a redeploy.
+_GOOGLE_COOLDOWN_SEC = 600  # 10 minutes
+_google_cooldown_until = 0.0
 
 # Viewbox half-size in degrees (~50 km)
 _VIEWBOX_DEG = 0.5
@@ -363,9 +366,11 @@ async def _google_geocode(
     Empty list on any failure (missing key, quota, network) so callers fall back
     to OSM. Restricted to Ukraine; softly biased toward a city center when known.
     """
-    global _google_enabled
-    if not _google_enabled:
+    global _google_cooldown_until
+    if not GOOGLE_MAPS_API_KEY:
         return []
+    if time.monotonic() < _google_cooldown_until:
+        return []  # in cooldown after a recent failure — use OSM for now
 
     params = {
         "address": address,
@@ -396,10 +401,11 @@ async def _google_geocode(
 
     status = data.get("status")
     if status in ("REQUEST_DENIED", "OVER_DAILY_LIMIT", "OVER_QUERY_LIMIT"):
-        # Hard failure (bad key / billing / quota) — stop using Google this run.
-        logger.error("Google geocode disabled, status=%s msg=%s",
-                     status, data.get("error_message", ""))
-        _google_enabled = False
+        # Hard failure (bad key / billing / quota / restriction). Pause Google for
+        # a cooldown, then auto-retry — no redeploy needed once the cause is fixed.
+        logger.error("Google geocode paused %ds, status=%s msg=%s",
+                     _GOOGLE_COOLDOWN_SEC, status, data.get("error_message", ""))
+        _google_cooldown_until = time.monotonic() + _GOOGLE_COOLDOWN_SEC
         return []
     if status != "OK":
         return []  # ZERO_RESULTS etc. — soft miss, let OSM try
