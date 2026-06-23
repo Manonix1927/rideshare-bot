@@ -3,27 +3,21 @@
 {% block content %}
 <div class="page-title">📢 Розсилка повідомлень</div>
 
-{% if sent is not none %}
-<div class="card mb-4">
-  <div class="card-header">Результат відправки</div>
+<!-- Live progress (polled) -->
+<div class="card mb-4" id="progress-card" style="{% if not state.started_at %}display:none{% endif %}">
+  <div class="card-header">📡 Прогрес розсилки — <span id="pr-segment">{{ state.segment }}</span></div>
   <div style="padding:20px">
-    <div class="row g-3">
-      <div class="col-6">
-        <div class="stat-card text-center">
-          <div class="stat-val" style="color:#4ade80">{{ sent }}</div>
-          <div class="stat-lbl">Надіслано</div>
-        </div>
-      </div>
-      <div class="col-6">
-        <div class="stat-card text-center">
-          <div class="stat-val" style="color:{% if failed > 0 %}#f87171{% else %}#6b7280{% endif %}">{{ failed }}</div>
-          <div class="stat-lbl">Помилок</div>
-        </div>
-      </div>
+    <div style="height:10px;background:var(--input-bg);border-radius:6px;overflow:hidden;margin-bottom:14px">
+      <div id="pr-bar" style="height:100%;width:0%;background:#4ade80;border-radius:6px;transition:width .3s"></div>
     </div>
+    <div class="row g-3">
+      <div class="col-4"><div class="stat-card text-center"><div class="stat-val" id="pr-sent" style="color:#4ade80">{{ state.sent }}</div><div class="stat-lbl">Надіслано</div></div></div>
+      <div class="col-4"><div class="stat-card text-center"><div class="stat-val" id="pr-failed" style="color:#f87171">{{ state.failed }}</div><div class="stat-lbl">Помилок</div></div></div>
+      <div class="col-4"><div class="stat-card text-center"><div class="stat-val" id="pr-total">{{ state.total }}</div><div class="stat-lbl">Всього</div></div></div>
+    </div>
+    <div style="margin-top:10px;font-size:12px;color:var(--muted)" id="pr-status"></div>
   </div>
 </div>
-{% endif %}
 
 {% if error %}
 <div class="alert alert-danger mb-3" style="background:#3a1e1e;border-color:#7f1d1d;color:#f87171">
@@ -42,20 +36,35 @@
           Підтримується HTML-розмітка: <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;code&gt;</code>, <code>&lt;a href="..."&gt;</code>
         </div>
       </div>
-      <div class="mb-4">
-        <label class="form-label" style="color:var(--muted);font-size:12px">РЕЖИМ РОЗМІТКИ</label>
-        <select name="parse_mode" class="form-select" style="max-width:180px">
-          <option value="HTML">HTML</option>
-          <option value="Markdown">Markdown</option>
-          <option value="">Plain text</option>
-        </select>
+      <div class="row g-3 mb-4">
+        <div class="col-auto">
+          <label class="form-label" style="color:var(--muted);font-size:12px">КОМУ (СЕГМЕНТ)</label>
+          <select name="segment" id="segment-sel" class="form-select" style="max-width:260px"
+                  onchange="document.getElementById('city-wrap').style.display = this.value==='city' ? 'block':'none'">
+            {% for key, label in segment_labels.items() %}
+            <option value="{{ key }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-auto" id="city-wrap" style="display:none">
+          <label class="form-label" style="color:var(--muted);font-size:12px">МІСТО</label>
+          <input type="text" name="city" class="form-control" style="max-width:180px" placeholder="Київ">
+        </div>
+        <div class="col-auto">
+          <label class="form-label" style="color:var(--muted);font-size:12px">РОЗМІТКА</label>
+          <select name="parse_mode" class="form-select" style="max-width:150px">
+            <option value="HTML">HTML</option>
+            <option value="Markdown">Markdown</option>
+            <option value="">Plain text</option>
+          </select>
+        </div>
       </div>
       <div class="d-flex gap-2 align-items-center">
         <button type="submit" class="btn btn-primary px-4"
-                onclick="return confirm('Відправити повідомлення всім незаблокованим користувачам?')">
+                onclick="return confirm('Відправити розсилку обраному сегменту?')">
           📤 Відправити розсилку
         </button>
-        <span style="font-size:12px;color:var(--muted)">Повідомлення отримають всі незаблоковані користувачі</span>
+        <span style="font-size:12px;color:var(--muted)">Надсилається у фоні, ~20 повідомлень/сек. Прогрес зверху.</span>
       </div>
     </form>
   </div>
@@ -81,4 +90,39 @@
     </form>
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const card = document.getElementById('progress-card');
+  function render(st) {
+    if (!st || !st.started_at) return;
+    card.style.display = 'block';
+    document.getElementById('pr-segment').textContent = st.segment || '';
+    document.getElementById('pr-sent').textContent = st.sent;
+    document.getElementById('pr-failed').textContent = st.failed;
+    document.getElementById('pr-total').textContent = st.total;
+    const done = st.sent + st.failed;
+    const pct = st.total ? Math.round(done / st.total * 100) : 0;
+    document.getElementById('pr-bar').style.width = pct + '%';
+    const stEl = document.getElementById('pr-status');
+    if (st.running) {
+      stEl.textContent = `Виконується… ${done}/${st.total} (${pct}%)`;
+      document.getElementById('pr-bar').style.background = '#4ade80';
+    } else {
+      stEl.textContent = `✅ Завершено о ${st.finished_at || ''} · надіслано ${st.sent}, помилок ${st.failed}`;
+      document.getElementById('pr-bar').style.background = '#6c8ef7';
+    }
+  }
+  async function poll() {
+    try {
+      const r = await fetch('/admin/api/broadcast/status');
+      const st = await r.json();
+      render(st);
+      if (st.running) setTimeout(poll, 1500);
+    } catch (e) {}
+  }
+  poll();
+})();
+</script>
 {% endblock %}

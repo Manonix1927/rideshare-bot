@@ -606,60 +606,124 @@ async def api_trips_map(request: web.Request) -> web.Response:
 
 # ── Broadcast ────────────────────────────────────────────────────────────────
 
+# Live state of the most recent broadcast (single-flight; process-local).
+_broadcast_state: dict = {
+    "running": False, "total": 0, "sent": 0, "failed": 0,
+    "segment": "", "started_at": None, "finished_at": None,
+}
+
+SEGMENT_LABELS = {
+    "all":       "Всі користувачі",
+    "drivers":   "Водії (мали поїздку-водія)",
+    "passengers":"Пасажири (мали заявку)",
+    "active7":   "Активні за 7 днів",
+    "active30":  "Активні за 30 днів",
+    "city":      "За містом",
+}
+
+
+async def _resolve_segment(s, segment: str, city: str) -> list[int]:
+    """Return non-blocked user IDs matching the chosen broadcast segment."""
+    now = _now()
+    if segment == "drivers":
+        ids = (await s.execute(select(distinct(Trip.user_id)).where(Trip.role == "driver"))).scalars().all()
+    elif segment == "passengers":
+        ids = (await s.execute(select(distinct(Trip.user_id)).where(Trip.role == "passenger"))).scalars().all()
+    elif segment in ("active7", "active30"):
+        days = 7 if segment == "active7" else 30
+        ids = (await s.execute(
+            select(distinct(Trip.user_id)).where(Trip.created_at >= now - timedelta(days=days))
+        )).scalars().all()
+    elif segment == "city" and city:
+        ids = (await s.execute(
+            select(User.id).where(func.lower(User.home_city) == city.lower())
+        )).scalars().all()
+    else:  # all
+        ids = (await s.execute(select(User.id))).scalars().all()
+
+    if not ids:
+        return []
+    # Drop blocked users
+    blocked = set((await s.execute(
+        select(User.id).where(User.id.in_(ids), User.is_blocked == True)
+    )).scalars().all())
+    return [uid for uid in set(ids) if uid not in blocked]
+
+
+async def _run_broadcast(bot, user_ids: list[int], text: str, parse_mode: str) -> None:
+    """Background sender. Updates _broadcast_state as it goes."""
+    st = _broadcast_state
+    for uid in user_ids:
+        try:
+            await bot.send_message(uid, text, parse_mode=parse_mode or None)
+            st["sent"] += 1
+        except Exception:
+            st["failed"] += 1
+        await asyncio.sleep(0.05)  # ~20 msg/s, under Telegram's 30/s cap
+    st["running"] = False
+    st["finished_at"] = _now().strftime("%H:%M:%S")
+
+
 @_require_auth
 async def admin_broadcast_get(request: web.Request) -> web.Response:
     async with AsyncSessionLocal() as s:
         bt = await s.get(BotSetting, "banner_text")
         ba = await s.get(BotSetting, "banner_active")
     return aiohttp_jinja2.render_template("broadcast.html", request, {
-        "active": "broadcast", "sent": None, "failed": 0, "error": None,
+        "active": "broadcast", "error": None,
         "banner_text":   bt.value if bt else "",
         "banner_active": ba.value if ba else "0",
+        "state": _broadcast_state, "segment_labels": SEGMENT_LABELS,
     })
 
 
 @_require_auth
 async def admin_broadcast_post(request: web.Request) -> web.Response:
     data = await request.post()
-    text = data.get("text", "").strip()
+    text = (data.get("text") or "").strip()
     parse_mode = data.get("parse_mode", "HTML")
+    segment = data.get("segment", "all")
+    city = (data.get("city") or "").strip()
 
     async with AsyncSessionLocal() as s:
         bt = await s.get(BotSetting, "banner_text")
         ba = await s.get(BotSetting, "banner_active")
     ctx_banner = {"banner_text": bt.value if bt else "", "banner_active": ba.value if ba else "0"}
 
-    if not text:
+    def err(msg):
         return aiohttp_jinja2.render_template("broadcast.html", request, {
-            "active": "broadcast", "sent": None, "failed": 0,
-            "error": "Порожнє повідомлення", **ctx_banner,
+            "active": "broadcast", "error": msg, "state": _broadcast_state,
+            "segment_labels": SEGMENT_LABELS, **ctx_banner,
         })
 
+    if not text:
+        return err("Порожнє повідомлення")
+    if _broadcast_state["running"]:
+        return err("Розсилка вже виконується — дочекайтесь завершення")
     bot = request.app.get("bot")
     if not bot:
-        return aiohttp_jinja2.render_template("broadcast.html", request, {
-            "active": "broadcast", "sent": None, "failed": 0,
-            "error": "Bot не ініціалізовано — перезапустіть сервер", **ctx_banner,
-        })
+        return err("Bot не ініціалізовано — перезапустіть сервер")
 
     async with AsyncSessionLocal() as s:
-        users = (await s.execute(
-            select(User).where(User.is_blocked == False)
-        )).scalars().all()
+        user_ids = await _resolve_segment(s, segment, city)
+    if not user_ids:
+        return err("За цим сегментом немає отримувачів")
 
-    sent, failed = 0, 0
-    for user in users:
-        try:
-            await bot.send_message(user.id, text, parse_mode=parse_mode)
-            sent += 1
-            await asyncio.sleep(0.04)          # ≤25 msg/sec — Telegram limit is 30
-        except Exception:
-            failed += 1
-
-    return aiohttp_jinja2.render_template("broadcast.html", request, {
-        "active": "broadcast", "sent": sent, "failed": failed, "error": None,
-        **ctx_banner,
+    _broadcast_state.update({
+        "running": True, "total": len(user_ids), "sent": 0, "failed": 0,
+        "segment": SEGMENT_LABELS.get(segment, segment) + (f" «{city}»" if segment == "city" else ""),
+        "started_at": _now().strftime("%H:%M:%S"), "finished_at": None,
     })
+    # Fire-and-forget; progress is polled via /admin/api/broadcast/status
+    asyncio.create_task(_run_broadcast(bot, user_ids, text, parse_mode))
+
+    raise web.HTTPFound("/admin/broadcast")
+
+
+async def api_broadcast_status(request: web.Request) -> web.Response:
+    if not _is_authed(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    return web.json_response(_broadcast_state)
 
 
 # ── Banner save ───────────────────────────────────────────────────────────────
@@ -1035,6 +1099,7 @@ def setup_admin(app: web.Application) -> None:
     app.router.add_get ("/admin/broadcast",          admin_broadcast_get)
     app.router.add_post("/admin/broadcast",          admin_broadcast_post)
     app.router.add_post("/admin/broadcast/banner",   admin_banner_save)
+    app.router.add_get ("/admin/api/broadcast/status", api_broadcast_status)
     # Stats
     app.router.add_get ("/admin/stats",              admin_stats)
     # Manual match
