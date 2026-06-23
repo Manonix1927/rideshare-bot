@@ -297,24 +297,51 @@ def _google_component(components: list, *types: str) -> str:
     return ""
 
 
+# Result types that represent a concrete, routable place (street or POI).
+_GOOGLE_SPECIFIC_TYPES = {
+    "street_address", "premise", "subpremise", "route", "intersection",
+    "establishment", "point_of_interest", "transit_station", "park", "airport",
+}
+# Result types that are too coarse to use as a pickup point on their own
+# (a whole region or the country) — e.g. fuzzy "Либідська" → "Слобідська Україна".
+_GOOGLE_COARSE_TYPES = {
+    "country", "administrative_area_level_1",
+    "administrative_area_level_2", "administrative_area_level_3",
+}
+
+
+def _google_is_usable(result: dict) -> bool:
+    """Reject region/country-level matches that aren't a real address or place."""
+    types = set(result.get("types", []))
+    if types & _GOOGLE_COARSE_TYPES and not (types & _GOOGLE_SPECIFIC_TYPES):
+        return False
+    return True
+
+
 def _google_format(result: dict) -> tuple[str, str]:
     """
-    Build ("вул. Хрещатик, 22, Київ", "Київ") from a Google geocode result.
-    Returns (display, city).
+    Build ("Хрещатик, 22, Київ", "Київ") or ("Либідська, Київ", "Київ") from a
+    Google geocode result. Handles both street addresses and POIs (metro,
+    landmarks). Returns (display, city).
     """
     comps = result.get("address_components", [])
-    route   = _google_component(comps, "route")
-    house   = _google_component(comps, "street_number")
-    city    = (_google_component(comps, "locality")
-               or _google_component(comps, "administrative_area_level_2")
-               or _google_component(comps, "administrative_area_level_1"))
+    route = _google_component(comps, "route")
+    house = _google_component(comps, "street_number")
+    poi   = _google_component(comps, "establishment", "point_of_interest",
+                              "transit_station")
+    city  = (_google_component(comps, "locality")
+             or _google_component(comps, "administrative_area_level_2")
+             or _google_component(comps, "administrative_area_level_1"))
 
-    parts = []
     if route:
-        parts.append(f"{route}, {house}".rstrip(", ") if house else route)
-    if city:
-        parts.append(city)
-    display = ", ".join(p for p in parts if p)
+        head = f"{route}, {house}".rstrip(", ") if house else route
+    elif poi:
+        head = poi          # metro station / landmark name
+    else:
+        head = ""
+
+    parts = [p for p in (head, city) if p]
+    display = ", ".join(parts)
     # Fallback to Google's formatted_address (minus country/postcode noise)
     if not display:
         display = result.get("formatted_address", "").replace(", Україна", "").strip()
@@ -375,6 +402,8 @@ async def _google_geocode(
 
     out: list[tuple[float, float, str, str]] = []
     for r in data.get("results", []):
+        if not _google_is_usable(r):
+            continue  # skip whole-region / country fuzzy matches
         loc = r.get("geometry", {}).get("location", {})
         lat, lon = loc.get("lat"), loc.get("lng")
         if lat is None or lon is None:
