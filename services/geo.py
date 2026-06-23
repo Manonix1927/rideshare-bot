@@ -329,6 +329,8 @@ def _google_format(result: dict) -> tuple[str, str]:
     house = _google_component(comps, "street_number")
     poi   = _google_component(comps, "establishment", "point_of_interest",
                               "transit_station")
+    district = _google_component(comps, "sublocality", "sublocality_level_1",
+                                 "neighborhood")
     city  = (_google_component(comps, "locality")
              or _google_component(comps, "administrative_area_level_2")
              or _google_component(comps, "administrative_area_level_1"))
@@ -337,6 +339,8 @@ def _google_format(result: dict) -> tuple[str, str]:
         head = f"{route}, {house}".rstrip(", ") if house else route
     elif poi:
         head = poi          # metro station / landmark name
+    elif district:
+        head = district     # city district, e.g. "Святошинський район"
     else:
         head = ""
 
