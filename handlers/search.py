@@ -148,7 +148,7 @@ async def search_start(message: Message, state: FSMContext) -> None:
     await state.set_state(SearchStates.waiting_location)
     await message.answer(
         "🔍 <b>Пошук поїздок поруч</b>\n\n"
-        "Вкажіть вашу точку відправлення — надішліть геолокацію або введіть адресу:",
+        "Вкажіть вашу точку відправлення — надішліть геолокацію або введіть адресу:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>",
         parse_mode="HTML",
         reply_markup=geo_or_text_kb(),
     )
@@ -314,14 +314,14 @@ async def new_trip_from_search(callback: CallbackQuery, state: FSMContext, sessi
     if role == "driver":
         await state.set_state(DriverStates.from_address)
         await callback.message.answer(
-            "🚗 <b>Нова поїздка — крок 1/5</b>\n\nВкажіть адресу відправлення:",
+            "🚗 <b>Нова поїздка — крок 1/5</b>\n\nВкажіть адресу відправлення:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>",
             parse_mode="HTML",
             reply_markup=geo_or_text_kb(),
         )
     else:
         await state.set_state(PassengerStates.from_address)
         await callback.message.answer(
-            "🙋 <b>Нова заявка — крок 1/5</b>\n\nВкажіть адресу відправлення:",
+            "🙋 <b>Нова заявка — крок 1/5</b>\n\nВкажіть адресу відправлення:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>",
             parse_mode="HTML",
             reply_markup=geo_or_text_kb(),
         )

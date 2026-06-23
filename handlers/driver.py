@@ -56,7 +56,7 @@ async def driver_start(message: Message, state: FSMContext, session: AsyncSessio
 
     await state.set_state(DriverStates.from_address)
     await message.answer(
-        "🚗 <b>Нова поїздка — крок 1/5</b>\n\nВкажіть адресу відправлення:",
+        "🚗 <b>Нова поїздка — крок 1/5</b>\n\nВкажіть адресу відправлення:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>",
         parse_mode="HTML",
         reply_markup=geo_or_text_kb(),
     )
@@ -73,7 +73,7 @@ async def driver_from_location(message: Message, state: FSMContext, session: Asy
     await state.update_data(from_lat=lat, from_lon=lon, from_address=address, from_city=city)
     await state.set_state(DriverStates.to_address)
     await message.answer(
-        f"✅ Відправлення: {address}\n\n🚗 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
+        f"✅ Відправлення: {address}\n\n🚗 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>",
         parse_mode="HTML",
         reply_markup=dest_kb(),
     )
@@ -100,7 +100,7 @@ async def driver_from_text(message: Message, state: FSMContext, session: AsyncSe
         )
         await state.set_state(DriverStates.to_address)
         await message.answer(
-            f"✅ Відправлення: {data['pending_from_address']}\n\n🚗 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
+            f"✅ Відправлення: {data['pending_from_address']}\n\n🚗 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>",
             parse_mode="HTML",
             reply_markup=dest_kb(),
         )
@@ -108,7 +108,7 @@ async def driver_from_text(message: Message, state: FSMContext, session: AsyncSe
 
     if message.text == "🔄 Ввести інший":
         await state.update_data(pending_from_lat=None)
-        await message.answer("🚗 Введіть адресу відправлення:", reply_markup=geo_or_text_kb())
+        await message.answer("🚗 Введіть адресу відправлення:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>", reply_markup=geo_or_text_kb())
         return
 
     user = await session.get(User, message.from_user.id)
@@ -162,7 +162,7 @@ async def driver_from_webapp(message: Message, state: FSMContext, bot: Bot) -> N
     await state.update_data(from_lat=lat, from_lon=lon, from_address=address, from_city=city)
     await state.set_state(DriverStates.to_address)
     await message.answer(
-        f"✅ Відправлення: {address}\n\n🚗 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
+        f"✅ Відправлення: {address}\n\n🚗 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>",
         parse_mode="HTML",
         reply_markup=dest_kb(),
     )
@@ -184,7 +184,7 @@ async def driver_from_addr_ok(callback: CallbackQuery, state: FSMContext) -> Non
         parse_mode="HTML",
     )
     await callback.message.answer(
-        "🚗 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
+        "🚗 <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>",
         parse_mode="HTML",
         reply_markup=dest_kb(),
     )
@@ -194,8 +194,8 @@ async def driver_from_addr_ok(callback: CallbackQuery, state: FSMContext) -> Non
 @router.callback_query(F.data == "addr_retry:driver:from", DriverStates.from_address)
 async def driver_from_addr_retry(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
-        "🚗 Введіть адресу відправлення:\n"
-        "<i>Для точного результату вказуйте місто, наприклад: Хрещатик 1, Київ</i>",
+        "🚗 Введіть адресу відправлення:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>\n"
+        "<i>Для точного результату вказуйте місто, наприклад: Святошинська, 10, Київ</i>",
         parse_mode="HTML",
     )
     await callback.answer()
@@ -267,7 +267,7 @@ async def driver_to_text(message: Message, state: FSMContext) -> None:
 
     if message.text == "🔄 Ввести інший":
         await state.update_data(pending_to_lat=None)
-        await message.answer("🚗 Введіть адресу призначення:", reply_markup=dest_kb())
+        await message.answer("🚗 Введіть адресу призначення:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>", reply_markup=dest_kb())
         return
 
     data = await state.get_data()
@@ -330,7 +330,7 @@ async def driver_addr_ok(callback: CallbackQuery, state: FSMContext) -> None:
 async def driver_addr_retry(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
         "🚗 Введіть адресу пункту призначення:\n"
-        "<i>Для точного результату вказуйте місто, наприклад: Телиги 50, Київ</i>",
+        "<i>Для точного результату вказуйте місто, наприклад: Святошинська, 10, Київ</i>",
         parse_mode="HTML",
     )
     await callback.answer()

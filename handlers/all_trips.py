@@ -163,7 +163,7 @@ async def all_trips_nearby(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(SearchStates.waiting_location)
     await callback.message.answer(
         "🔍 <b>Поїздки поруч</b>\n\n"
-        "Вкажіть вашу точку відправлення — надішліть геолокацію або введіть адресу:",
+        "Вкажіть вашу точку відправлення — надішліть геолокацію або введіть адресу:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>",
         parse_mode="HTML",
         reply_markup=geo_or_text_kb(),
     )

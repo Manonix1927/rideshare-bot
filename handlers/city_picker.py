@@ -31,7 +31,7 @@ async def pick_city(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(next_state)
         await callback.message.edit_text(f"✅ Відправлення: {address}")
         await callback.message.answer(
-            f"{role_emoji} <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:",
+            f"{role_emoji} <b>Крок 2/5</b>\n\nВкажіть адресу пункту призначення:\n\n💡 <i>Приклад: Святошинська, 10, Київ</i>",
             parse_mode="HTML",
             reply_markup=dest_kb(),
         )
