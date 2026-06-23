@@ -322,6 +322,22 @@ async def geocode_address_multi(
             )]
         # In-city lookup failed — fall through to the broad search below.
 
+    # No city typed, but the user has a saved home city → default to it and skip
+    # the multi-city picker. OSM often has the same street+house in tiny villages
+    # near a metro (e.g. "Оболонська 25" exists in both Київ and village Новосілки),
+    # which produced a confusing "оберіть місто" prompt. Typing an explicit city
+    # still overrides this via the branch above.
+    if home_city and not explicit_city:
+        loc = await _geocode_in_city(address, home_city)
+        if loc:
+            a = loc.raw.get("address", {})
+            return [(
+                loc.latitude, loc.longitude,
+                _inject_housenumber(address, _format_address(loc.raw)),
+                _city_of(a) or home_city,
+            )]
+        # home_city has no such street — fall through to the broad search.
+
     # Bias center: explicit city > current location > user's saved home city.
     vb_lat, vb_lon = None, None
     if city_coords:
