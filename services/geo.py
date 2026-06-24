@@ -495,6 +495,13 @@ async def _google_geocode(
 
     out = await _google_call(address, bounds)
 
+    # If the bare query already landed on the typed locality, remember its coords —
+    # that geographically confirms the settlement, so a later street retry near it is
+    # valid even when Google labels that street by raion instead of the village name.
+    anchor = None
+    if typed_city and out and _matches_city(out):
+        anchor = (out[0][0], out[0][1])
+
     # Retry with the "вулиця " prefix when the bare query: found nothing usable;
     # OR resolved to a different city than typed; OR (user named a street + city but)
     # Google only pinned the settlement centre. The prefix forces a street reading —
@@ -508,9 +515,27 @@ async def _google_geocode(
     )
     if need_retry and not _STREET_PREFIXES.match(address.strip()):
         retried = await _google_call(f"вулиця {address}", bounds)
-        if retried and (not out or _matches_city(retried)):
-            # Prefer the retry only if it's at least as specific (not a coarser result)
-            if not out or not _is_coarse(retried) or _is_coarse(out):
+        if retried:
+            rlat, rlon = retried[0][0], retried[0][1]
+            accept = False
+            if not out:
+                accept = True
+            elif _matches_city(retried):
+                accept = (not _is_coarse(retried)) or _is_coarse(out)
+            elif anchor and haversine_km(anchor[0], anchor[1], rlat, rlon) < 8.0 and not _is_coarse(retried):
+                # Street resolved next to the confirmed settlement but Google tagged it
+                # by raion, not the village name — accept it and stop name-filtering.
+                # Relabel the display with the village the user actually named.
+                village = typed_city
+                rdisp, rcity = retried[0][2], retried[0][3]
+                if rcity and rcity in rdisp:
+                    rdisp = rdisp.replace(rcity, village)
+                elif village.lower() not in rdisp.lower():
+                    rdisp = f"{rdisp}, {village}"
+                retried = [(rlat, rlon, rdisp, village), *retried[1:]]
+                accept = True
+                typed_city = None
+            if accept:
                 out = retried
 
     # If the user named a locality, don't silently switch it. When the street doesn't
