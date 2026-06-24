@@ -19,7 +19,7 @@ from config import BOT_TOKEN, REDIS_URL
 from database.database import init_db, AsyncSessionLocal
 from database.models import DriverLocation, PassengerLocation
 from handlers import start, driver, passenger, announcements, my_trips, rating, support, faq, admin, matching, search, trip_actions, all_trips, city_picker, fallback
-from services.notifications import auto_close_expired_trips, send_rating_prompts, send_trip_reminders, check_pending_match_timeouts
+from services.notifications import auto_close_expired_trips, send_rating_prompts, send_trip_reminders, check_pending_match_timeouts, rematch_active_trips
 from services.bot_settings import reload as reload_bot_settings
 from admin.routes import setup_admin
 
@@ -228,6 +228,7 @@ async def main() -> None:
     scheduler.add_job(send_rating_prompts,           "interval", minutes=1, args=[bot])
     scheduler.add_job(send_trip_reminders,           "interval", minutes=1, args=[bot])
     scheduler.add_job(check_pending_match_timeouts,  "interval", minutes=1, args=[bot])
+    scheduler.add_job(rematch_active_trips,          "interval", minutes=3, args=[bot])
     scheduler.add_job(reload_bot_settings,           "interval", minutes=1)
     scheduler.start()
 

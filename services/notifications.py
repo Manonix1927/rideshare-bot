@@ -3,6 +3,7 @@ Scheduled tasks:
   - Auto-close trips past their departure time → CLOSED
   - Send rating prompt 5 min after departure
 """
+import logging
 import urllib.parse
 from datetime import timedelta
 from sqlalchemy import select
@@ -13,6 +14,8 @@ from database.models import Trip, Match, User
 from config import WEBAPP_URL
 from services import bot_settings as _s
 from services.timezone import now as _now
+
+logger = logging.getLogger(__name__)
 
 
 def _match_map_url(driver_trip: Trip, passenger_trip: Trip, role: str) -> str:
@@ -175,6 +178,47 @@ async def send_trip_reminders(bot) -> None:
                 pass
 
         await session.commit()
+
+
+async def rematch_active_trips(bot) -> None:
+    """Periodic safety net (every few minutes): pair up ACTIVE trips that didn't get
+    matched at creation time — e.g. the counterpart was created later, or an earlier
+    match was cancelled. Matching otherwise runs only once, at creation, so without
+    this two compatible trips can sit ACTIVE forever.
+
+    Skips any pair that already has a match record (PENDING/CONFIRMED/REJECTED/…) so a
+    rejected or cancelled pair is never silently recreated.
+    """
+    from services.matching import find_matches_for_trip, create_match
+
+    created = 0
+    async with AsyncSessionLocal() as session:
+        passengers = (await session.execute(
+            select(Trip).where(Trip.role == "passenger", Trip.status == "ACTIVE")
+            .options(selectinload(Trip.user))
+        )).scalars().all()
+
+        for p_trip in passengers:
+            candidates = await find_matches_for_trip(p_trip, session)
+            for d_trip in candidates:
+                # Never re-create a pair that was already matched once (incl. rejected).
+                existing = (await session.execute(
+                    select(Match).where(
+                        Match.driver_trip_id == d_trip.id,
+                        Match.passenger_trip_id == p_trip.id,
+                    )
+                )).scalars().first()
+                if existing:
+                    continue
+                match = await create_match(d_trip, p_trip, session)
+                if match:
+                    created += 1
+                    await notify_new_match(bot, d_trip, p_trip, match)
+                    await notify_new_match(bot, p_trip, d_trip, match)
+                    break  # passenger is now MATCHING — one pending offer at a time
+
+    if created:
+        logger.info("rematch_active_trips: created %d new match(es)", created)
 
 
 async def check_pending_match_timeouts(bot) -> None:
