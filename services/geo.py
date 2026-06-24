@@ -482,18 +482,36 @@ async def _google_geocode(
         ec = typed_city.lower()
         return any(r[3] and (ec in r[3].lower() or r[3].lower() in ec) for r in results)
 
+    def _is_coarse(results: list) -> bool:
+        # locality-only result: display is just the settlement name, no street/POI
+        return bool(results) and results[0][2].strip().lower() == (results[0][3] or "").strip().lower()
+
+    # Street part = the query minus the named locality. Non-empty alphabetic content
+    # means the user asked for a specific street, not just a settlement.
+    street_part = address
+    if typed_city:
+        street_part = re.sub(re.escape(typed_city), "", address, flags=re.IGNORECASE).strip().strip(",").strip()
+    has_street = bool(re.search(r"[А-Яа-яІіЇїЄєҐґ]", street_part))
+
     out = await _google_call(address, bounds)
 
-    # Retry with the "вулиця " prefix when the bare query found nothing usable OR
-    # resolved to a city other than the one the user typed. The prefix forces a
-    # street interpretation, which both fixes nominative surnames ("Жмаченко" →
-    # "вул. Генерала Жмаченка") and finds streets in small settlements that the
-    # plain query mis-resolves to the nearest big city ("Ділова 2, Крюківщина").
-    need_retry = (not out) or (typed_city and not _matches_city(out))
+    # Retry with the "вулиця " prefix when the bare query: found nothing usable;
+    # OR resolved to a different city than typed; OR (user named a street + city but)
+    # Google only pinned the settlement centre. The prefix forces a street reading —
+    # fixes nominative surnames ("Жмаченко"), streets in small settlements mis-pinned
+    # to the nearest big city ("Ділова 2, Крюківщина"), and bare-locality fallbacks
+    # ("Лесі Українки, Святопетрівське" → "вул. Лесі Українки, Святопетрівське").
+    need_retry = (
+        (not out)
+        or (typed_city and not _matches_city(out))
+        or (typed_city and has_street and _is_coarse(out))
+    )
     if need_retry and not _STREET_PREFIXES.match(address.strip()):
         retried = await _google_call(f"вулиця {address}", bounds)
         if retried and (not out or _matches_city(retried)):
-            out = retried
+            # Prefer the retry only if it's at least as specific (not a coarser result)
+            if not out or not _is_coarse(retried) or _is_coarse(out):
+                out = retried
 
     # If the user named a locality, don't silently switch it. When the street doesn't
     # exist there (renamed "Ломоносова" in Київ), Google returns the nearest real match
