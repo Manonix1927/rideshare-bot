@@ -17,11 +17,13 @@ _geocoder = Nominatim(user_agent=NOMINATIM_UA, timeout=10)
 _photon   = Photon(user_agent=NOMINATIM_UA, timeout=10)
 
 _GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
-# After a hard auth/billing failure we pause Google for a cooldown and use OSM,
+_PLACES_TEXT_URL    = "https://places.googleapis.com/v1/places:searchText"
+# After a hard auth/billing failure we pause an API for a cooldown and fall through,
 # then automatically retry. This way a transient denial (e.g. restriction change
-# still propagating) self-heals without needing a redeploy.
+# still propagating, or Places API not yet enabled) self-heals without a redeploy.
 _GOOGLE_COOLDOWN_SEC = 600  # 10 minutes
 _google_cooldown_until = 0.0
+_places_cooldown_until = 0.0
 
 # OSM is used when explicitly enabled, OR always when there's no Google key
 # (so geocoding never dies just because the key was removed).
@@ -32,10 +34,10 @@ _OSM_ACTIVE = OSM_FALLBACK_ENABLED or not GOOGLE_MAPS_API_KEY
 # WARNING level so it survives even though this module is imported before
 # main.py calls logging.basicConfig() (Python emits WARNING+ to stderr by default).
 logger.warning(
-    "Geocoder init: Google=%s | OSM fallback=%s",
+    "Geocoder init: Google=%s | order: Places→Geocoding→%s",
     f"ENABLED (key …{GOOGLE_MAPS_API_KEY[-4:]})" if GOOGLE_MAPS_API_KEY
     else "DISABLED — no GOOGLE_MAPS_API_KEY",
-    "ON" if OSM_FALLBACK_ENABLED else "OFF",
+    "OSM" if OSM_FALLBACK_ENABLED else "(OSM off)",
 )
 
 # Viewbox half-size in degrees (~50 km)
@@ -556,6 +558,98 @@ async def _google_geocode(
     return out
 
 
+def _place_new_as_geo(place: dict) -> dict:
+    """Adapt a Places API (New) place to the geocoding-result shape so we can reuse
+    _google_format / _google_is_usable (same address-component types)."""
+    comps = [
+        {"long_name": c.get("longText", ""), "types": c.get("types", [])}
+        for c in place.get("addressComponents", [])
+    ]
+    return {
+        "address_components": comps,
+        "types": place.get("types", []),
+        "formatted_address": place.get("formattedAddress", ""),
+    }
+
+
+async def _places_geocode(
+    address: str,
+    near_lat: float | None = None,
+    near_lon: float | None = None,
+    home_city: str | None = None,
+) -> list[tuple[float, float, str, str]]:
+    """
+    Geocode via Google Places API (New) Text Search — understands "вулиця, село"
+    and POIs better than the Geocoding API. Returns [(lat, lon, display, city), ...],
+    or [] on any failure so the caller falls back to the Geocoding API.
+    """
+    global _places_cooldown_until
+    if not GOOGLE_MAPS_API_KEY or time.monotonic() < _places_cooldown_until:
+        return []
+
+    body: dict = {"textQuery": address, "languageCode": "uk", "regionCode": "UA"}
+    bias_lat, bias_lon = None, None
+    if near_lat is not None and near_lon is not None:
+        bias_lat, bias_lon = near_lat, near_lon
+    elif home_city:
+        bias_lat, bias_lon = _UA_CITIES.get(home_city.lower(), (None, None))
+    if bias_lat is not None:
+        body["locationBias"] = {"circle": {
+            "center": {"latitude": bias_lat, "longitude": bias_lon},
+            "radius": 50000.0,
+        }}
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+        "X-Goog-FieldMask": ("places.location,places.formattedAddress,"
+                             "places.addressComponents,places.types"),
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(_PLACES_TEXT_URL, json=body, headers=headers,
+                                    timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status in (401, 403, 429):
+                    txt = (await resp.text())[:200]
+                    logger.error("Places(New) paused %ds, http=%s %s",
+                                 _GOOGLE_COOLDOWN_SEC, resp.status, txt)
+                    _places_cooldown_until = time.monotonic() + _GOOGLE_COOLDOWN_SEC
+                    return []
+                if resp.status != 200:
+                    return []
+                data = await resp.json()
+    except Exception as e:
+        logger.warning("Places network error: %s", e)
+        return []
+
+    out: list[tuple[float, float, str, str]] = []
+    for place in data.get("places", []):
+        loc = place.get("location", {})
+        lat, lon = loc.get("latitude"), loc.get("longitude")
+        if lat is None or lon is None:
+            continue
+        geo_like = _place_new_as_geo(place)
+        if not _google_is_usable(geo_like):
+            continue
+        display, city = _google_format(geo_like)
+        if any(haversine_km(lat, lon, u[0], u[1]) < 5.0 for u in out):
+            continue
+        out.append((lat, lon, display, city))
+        if len(out) >= 5:
+            break
+
+    # Respect an explicitly named locality (same rule as the Geocoding path).
+    typed_city = _intended_locality(address)
+    if typed_city and out:
+        ec = typed_city.lower()
+        out = [r for r in out if r[3] and (ec in r[3].lower() or r[3].lower() in ec)]
+
+    if out:
+        logger.info("Places geocode %r -> %d result(s)", address, len(out))
+    return out
+
+
 async def geocode_address_multi(
     address: str,
     near_lat: float | None = None,
@@ -566,10 +660,14 @@ async def geocode_address_multi(
     Return up to 5 unique-city results: [(lat, lon, display_address, city_name), ...].
     Used to offer city disambiguation when the same street exists in multiple cities.
     home_city biases results toward user's known city when no city is explicit in query.
+
+    Order: Places API (primary) → Geocoding API (fallback) → OSM (off by default).
     """
-    # Google first — its geocoder resolves cities far more reliably than OSM and
-    # usually returns the single correct match (so no city picker needed). Falls
-    # back to the OSM logic below when Google is unavailable or returns nothing.
+    places = await _places_geocode(address, near_lat, near_lon, home_city)
+    if places:
+        return places
+
+    # Geocoding API fallback — resolves cities reliably with its retry/anchor logic.
     google = await _google_geocode(address, near_lat, near_lon, home_city)
     if google:
         return google
@@ -759,12 +857,15 @@ async def geocode_address(
     Return (lat, lon, display_name) or None.
 
     Strategy (in order):
-    0. Google Geocoding API (primary, most accurate).
-    1. If user mentioned a known Ukrainian city — structured geocode (street + city).
-    2. Biased free-text search inside viewbox of that city (or near_lat/near_lon).
-    3. Country-wide free-text fallback.
+    0. Places API (primary) → Geocoding API (fallback) → OSM (off by default).
     """
-    # Google first — fall through to OSM when unavailable / no result.
+    # Places API first.
+    places = await _places_geocode(address, near_lat, near_lon)
+    if places:
+        lat, lon, display, _city = places[0]
+        return lat, lon, display
+
+    # Geocoding API fallback.
     google = await _google_geocode(address, near_lat, near_lon)
     if google:
         lat, lon, display, _city = google[0]
