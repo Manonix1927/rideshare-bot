@@ -10,7 +10,7 @@ from sqlalchemy import select, func
 from database.models import Trip, User
 from keyboards.keyboards import geo_or_text_kb, dest_kb, cancel_kb, main_menu_kb, confirm_address_kb, confirm_with_map_kb, addr_not_found_kb, city_picker_kb, date_picker_kb, time_picker_kb, seats_kb
 from services import bot_settings as _s
-from services.geo import geocode_address, geocode_address_multi, reverse_geocode, get_city_from_coords, _detect_city
+from services.geo import geocode_address, geocode_address_multi, reverse_geocode, get_city_from_coords, _detect_city, _intended_locality
 from services.matching import find_matches_for_trip, create_match
 from services.notifications import notify_new_match
 from states.states import DriverStates
@@ -280,8 +280,10 @@ async def driver_to_text(message: Message, state: FSMContext) -> None:
     from_city = data.get("from_city", "")
 
     query = message.text
-    city_in_query, _, _ = _detect_city(query)
-    if not city_in_query and from_city and from_city.lower() not in query.lower():
+    # Only append the origin city when the user named NO locality at all. Use the
+    # broad check so villages ("…, Віта-Поштова") count — otherwise we'd append
+    # "Київ" and resolve the village street to Kyiv.
+    if not _intended_locality(query) and from_city and from_city.lower() not in query.lower():
         query = f"{query}, {from_city}"
 
     candidates = await geocode_address_multi(query, near_lat=near_lat, near_lon=near_lon)
