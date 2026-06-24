@@ -1,6 +1,7 @@
 """
 Search trips near user's location (within 3 km).
 """
+import json as _json
 import math
 import urllib.parse
 from aiogram import Router, F
@@ -158,6 +159,25 @@ async def search_start(message: Message, state: FSMContext) -> None:
 async def search_by_location(message: Message, state: FSMContext, session: AsyncSession) -> None:
     await state.clear()
     lat, lon = message.location.latitude, message.location.longitude
+    await _show_search_results(message, session, lat, lon, message.from_user.id)
+
+
+@router.message(SearchStates.waiting_location, F.web_app_data)
+async def search_by_webapp(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    """Point picked on the map (🗺 Обрати місце на карті) in the nearby-search flow.
+    Without this the picked data had no handler — Telegram showed the grey
+    'data sent' notice and nothing happened on some clients."""
+    try:
+        await message.delete()  # remove the service "data sent" message
+    except Exception:
+        pass
+    try:
+        data = _json.loads(message.web_app_data.data)
+        lat, lon = float(data["lat"]), float(data["lon"])
+    except Exception:
+        await message.answer("❌ Помилка отримання даних з карти. Спробуйте ще раз.")
+        return
+    await state.clear()
     await _show_search_results(message, session, lat, lon, message.from_user.id)
 
 
