@@ -560,7 +560,7 @@ async def _google_geocode(
 
 def _place_new_as_geo(place: dict) -> dict:
     """Adapt a Places API (New) place to the geocoding-result shape so we can reuse
-    _google_format / _google_is_usable (same address-component types)."""
+    _google_is_usable (same address-component types)."""
     comps = [
         {"long_name": c.get("longText", ""), "types": c.get("types", [])}
         for c in place.get("addressComponents", [])
@@ -570,6 +570,34 @@ def _place_new_as_geo(place: dict) -> dict:
         "types": place.get("types", []),
         "formatted_address": place.get("formattedAddress", ""),
     }
+
+
+def _places_format(place: dict) -> tuple[str, str]:
+    """Build (display, city) from a Places API (New) place. Uses displayName for the
+    POI/landmark label (addressComponents don't carry the place name)."""
+    comps = [
+        {"long_name": c.get("longText", ""), "types": c.get("types", [])}
+        for c in place.get("addressComponents", [])
+    ]
+    route = _google_component(comps, "route")
+    house = _google_component(comps, "street_number")
+    district = _google_component(comps, "sublocality", "sublocality_level_1", "neighborhood")
+    city = (_google_component(comps, "locality")
+            or _google_component(comps, "administrative_area_level_2")
+            or _google_component(comps, "administrative_area_level_1"))
+    poi = (place.get("displayName") or {}).get("text", "").strip()
+
+    if route:
+        head = f"{route}, {house}".rstrip(", ") if house else route
+    elif poi and poi.lower() != city.lower():
+        head = poi
+    elif district:
+        head = district
+    else:
+        head = ""
+    parts = [p for p in (head, city) if p]
+    display = ", ".join(parts)
+    return (display or place.get("formattedAddress", "") or "Невідома адреса"), city
 
 
 async def _places_geocode(
@@ -603,7 +631,7 @@ async def _places_geocode(
         "Content-Type": "application/json",
         "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
         "X-Goog-FieldMask": ("places.location,places.formattedAddress,"
-                             "places.addressComponents,places.types"),
+                             "places.addressComponents,places.types,places.displayName"),
     }
 
     try:
@@ -629,10 +657,9 @@ async def _places_geocode(
         lat, lon = loc.get("latitude"), loc.get("longitude")
         if lat is None or lon is None:
             continue
-        geo_like = _place_new_as_geo(place)
-        if not _google_is_usable(geo_like):
+        if not _google_is_usable(_place_new_as_geo(place)):
             continue
-        display, city = _google_format(geo_like)
+        display, city = _places_format(place)
         if any(haversine_km(lat, lon, u[0], u[1]) < 5.0 for u in out):
             continue
         out.append((lat, lon, display, city))
