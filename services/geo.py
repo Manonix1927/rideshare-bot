@@ -527,17 +527,22 @@ async def _google_geocode(
                 accept = True
             elif _matches_city(retried):
                 accept = (not _is_coarse(retried)) or _is_coarse(out)
-            elif anchor and haversine_km(anchor[0], anchor[1], rlat, rlon) < 8.0 and not _is_coarse(retried):
-                # Street resolved next to the confirmed settlement but Google tagged it
-                # by raion, not the village name — accept it and stop name-filtering.
-                # Relabel the display with the village the user actually named.
+            elif (anchor and not _is_coarse(retried)
+                  and haversine_km(anchor[0], anchor[1], rlat, rlon) < 5.0
+                  and (not retried[0][3]
+                       or re.search(r"район|district", retried[0][3], re.IGNORECASE))):
+                # Street sits on the confirmed settlement but Google tagged it by raion
+                # (not the village name). Distinguish this from a street that genuinely
+                # lives in a NEIGHBOURING village (which Google labels with that real
+                # village name, e.g. "Тарасівка") — only relabel raion-tagged hits, and
+                # keep ONLY this one result so nearby-village matches don't leak in.
                 village = typed_city
                 rdisp, rcity = retried[0][2], retried[0][3]
                 if rcity and rcity in rdisp:
                     rdisp = rdisp.replace(rcity, village)
                 elif village.lower() not in rdisp.lower():
                     rdisp = f"{rdisp}, {village}"
-                retried = [(rlat, rlon, rdisp, village), *retried[1:]]
+                retried = [(rlat, rlon, rdisp, village)]
                 accept = True
                 typed_city = None
             if accept:
