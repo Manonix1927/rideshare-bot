@@ -128,6 +128,29 @@ def _extract_city_from_text(text: str) -> tuple[str | None, str]:
     return city_name, cleaned
 
 
+def _intended_locality(text: str) -> str | None:
+    """
+    Best guess of the settlement the user means: a known city named anywhere, a
+    "м./місто X" prefix, or the last comma-separated token when it's a plain word
+    (catches villages not in our list, e.g. "Ділова 2, Крюківщина"). Returns None
+    when no locality is implied (so we don't over-constrain bare street queries).
+    """
+    known = _detect_city(text)[0] or _extract_city_from_text(text)[0]
+    if known:
+        return known
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    if len(parts) >= 2:
+        last = parts[-1]
+        # A locality is alphabetic (Cyrillic) with no digits — excludes a bare house
+        # number ("Хрещатик, 22"). Admin areas (район/область) aren't settlements and
+        # would never equal the result's city, so don't constrain on them.
+        if (re.search(r"[А-Яа-яІіЇїЄєҐґ]", last)
+                and not re.search(r"\d", last)
+                and not re.search(r"район|область|обл\.?", last, re.IGNORECASE)):
+            return last
+    return None
+
+
 def _detect_city(text: str) -> tuple[str | None, tuple[float, float] | None, str]:
     """
     Return (city_name, (lat, lon), query_without_city).
@@ -448,26 +471,39 @@ async def _google_geocode(
         d = _VIEWBOX_DEG
         bounds = f"{bias_lat - d},{bias_lon - d}|{bias_lat + d},{bias_lon + d}"
 
+    # Locality the user intends: a known city anywhere in the text, OR the last
+    # comma-separated token when it's a word (covers villages/settlements not in
+    # our city list, e.g. "Ділова 2, Крюківщина").
+    typed_city = _intended_locality(address)
+
+    def _matches_city(results: list) -> bool:
+        if not typed_city:
+            return True
+        ec = typed_city.lower()
+        return any(r[3] and (ec in r[3].lower() or r[3].lower() in ec) for r in results)
+
     out = await _google_call(address, bounds)
 
-    # Bare street surname in the nominative ("Жмаченко") fuzzy-matches to a region;
-    # the "вулиця " prefix forces a street interpretation ("вулиця Жмаченко" →
-    # "вул. Генерала Жмаченка"). Retry only when the plain query found nothing usable
-    # and the user didn't already type a street-type word.
-    if not out and not _STREET_PREFIXES.match(address.strip()):
-        out = await _google_call(f"вулиця {address}", bounds)
+    # Retry with the "вулиця " prefix when the bare query found nothing usable OR
+    # resolved to a city other than the one the user typed. The prefix forces a
+    # street interpretation, which both fixes nominative surnames ("Жмаченко" →
+    # "вул. Генерала Жмаченка") and finds streets in small settlements that the
+    # plain query mis-resolves to the nearest big city ("Ділова 2, Крюківщина").
+    need_retry = (not out) or (typed_city and not _matches_city(out))
+    if need_retry and not _STREET_PREFIXES.match(address.strip()):
+        retried = await _google_call(f"вулиця {address}", bounds)
+        if retried and (not out or _matches_city(retried)):
+            out = retried
 
-    # If the user explicitly named a city, don't silently switch it. When the street
-    # doesn't exist there (e.g. renamed "Ломоносова" in Київ), Google returns the
-    # nearest real match in another town (Вишневе). Drop those — better to report
-    # "not found in <city>" than quietly pin a different settlement.
-    explicit_city = _detect_city(address)[0] or _extract_city_from_text(address)[0]
-    if explicit_city and out:
-        ec = explicit_city.lower()
+    # If the user named a locality, don't silently switch it. When the street doesn't
+    # exist there (renamed "Ломоносова" in Київ), Google returns the nearest real match
+    # elsewhere — drop those so we report "not found" rather than a wrong settlement.
+    if typed_city and out:
+        ec = typed_city.lower()
         matched = [r for r in out if r[3] and (ec in r[3].lower() or r[3].lower() in ec)]
         if not matched:
-            logger.info("Google %r: explicit city %r not matched (got %s) — dropping",
-                        address, explicit_city, [r[3] for r in out])
+            logger.info("Google %r: typed city %r not matched (got %s) — dropping",
+                        address, typed_city, [r[3] for r in out])
         out = matched
 
     logger.info("Google geocode %r -> %d result(s)", address, len(out))
