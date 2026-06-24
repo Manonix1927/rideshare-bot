@@ -261,14 +261,16 @@ async def cancel_custom_reason(message: Message, session: AsyncSession, bot: Bot
 
 
 async def _do_cancel(match: Match, role: str, reason_label: str, session: AsyncSession, bot: Bot, reply_target) -> None:
+    from services.matching import _occupied_seats
+
     match.status = "CANCELLED"
     match.cancelled_by = role
     match.cancel_reason = reason_label
-    match.driver_trip.status = "ACTIVE"
-    match.passenger_trip.status = "ACTIVE"
-    await session.commit()
 
+    # The one who cancels closes THEIR trip; the other side stays searching.
     if role == "driver":
+        match.driver_trip.status = "CLOSED"
+        match.passenger_trip.status = "ACTIVE"
         notify_id = match.passenger_trip.user_id
         notify_text = (
             f"😔 <b>Водій скасував поїздку</b>\n"
@@ -276,22 +278,28 @@ async def _do_cancel(match: Match, role: str, reason_label: str, session: AsyncS
             "Ваш пошук відновлено автоматично."
         )
     else:
+        match.passenger_trip.status = "CLOSED"
+        # Driver may still have other confirmed passengers → keep boarding.
+        occ = await _occupied_seats(match.driver_trip.id, session)
+        match.driver_trip.status = "BOARDING" if occ > 0 else "ACTIVE"
         notify_id = match.driver_trip.user_id
         notify_text = (
             f"😔 <b>Пасажир скасував поїздку</b>\n"
             f"Причина: {reason_label}\n\n"
             "Ваш пошук відновлено автоматично."
         )
+    await session.commit()
 
     try:
         await bot.send_message(notify_id, notify_text, parse_mode="HTML")
     except Exception:
         pass
 
+    # The canceller's own trip is closed — don't tell them their search resumed.
     result_text = (
         f"✅ Поїздку скасовано.\n"
         f"Причина: <i>{reason_label}</i>\n\n"
-        "Ваш пошук відновлено — шукаємо нові варіанти."
+        "Вашу заявку закрито."
     )
     if hasattr(reply_target, "edit_text"):
         await reply_target.edit_text(result_text, parse_mode="HTML")
