@@ -141,6 +141,9 @@ def _intended_locality(text: str) -> str | None:
     parts = [p.strip() for p in text.split(",") if p.strip()]
     if len(parts) >= 2:
         last = parts[-1]
+        # Drop a house number stuck to the settlement when the comma landed after the
+        # street name ("Одеська, 2 Віта-Поштова" → last token "2 Віта-Поштова" → village).
+        last = re.sub(r"^\d+[а-яіїєa-zA-Z]?\s+", "", last).strip()
         # A locality is alphabetic (Cyrillic) with no digits — excludes a bare house
         # number ("Хрещатик, 22"). Admin areas (район/область) aren't settlements and
         # would never equal the result's city, so don't constrain on them.
