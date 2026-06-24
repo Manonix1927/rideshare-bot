@@ -24,6 +24,17 @@ def fmt_rating(rating: float | None) -> str:
     return f"{rating:.1f}" if rating is not None else "Без рейтингу"
 
 
+def short_addr(address: str) -> str:
+    """Compact address that always keeps the settlement so two trips' city/village
+    can be compared at a glance: 'вул. Одеська, 70, Крюківщина'. The stored address
+    is 'street, house, city' (street+house carry an internal comma), so first two
+    tokens are the street+house and the last is the settlement."""
+    parts = [p.strip() for p in (address or "").split(",") if p.strip()]
+    if len(parts) <= 2:
+        return ", ".join(parts)
+    return f"{parts[0]}, {parts[1]}, {parts[-1]}"
+
+
 def trip_card_html(
     trip: "Trip",
     user: "User",
@@ -45,8 +56,8 @@ def trip_card_html(
     else:
         seats_header = "👥 Місця"
         seats_label = f"{trip.seats} пас."
-    from_addr = ", ".join(trip.from_address.split(",")[:2]).strip()
-    to_addr = ", ".join(trip.to_address.split(",")[:2]).strip()
+    from_addr = short_addr(trip.from_address)
+    to_addr = short_addr(trip.to_address)
 
     dist_row = f"<tr><th>📍 Відстань</th><td>{dist_km:.1f} км від вас</td></tr>" if dist_km is not None else ""
     status_row = f"<tr><th>📊 Статус</th><td>{_esc(status_label)}</td></tr>" if status_label else ""
@@ -83,8 +94,8 @@ def trip_card_plain(
         seats_str = f"💺 {trip.seats} місць"
     else:
         seats_str = f"👥 {trip.seats} пас."
-    from_addr = ", ".join(trip.from_address.split(",")[:2]).strip()
-    to_addr = ", ".join(trip.to_address.split(",")[:2]).strip()
+    from_addr = short_addr(trip.from_address)
+    to_addr = short_addr(trip.to_address)
     dist_part = f"  📍 {dist_km:.1f} км" if dist_km is not None else ""
     status_part = f"\n📊 {status_label}" if status_label else ""
     return (
