@@ -640,7 +640,13 @@ def _filter_by_street(raw: list, address: str, typed_city: str | None) -> list:
     sl = street.lower()
     def _rs(disp: str) -> str:
         return _STREET_PREFIXES.sub("", disp.split(",")[0].strip()).strip().lower()
-    sims = [(r, difflib.SequenceMatcher(None, sl, _rs(r[2])).ratio()) for r in raw]
+    def _score(rs_val: str) -> float:
+        # Containment handles short vs full names ('Стуса' ⊂ 'Василя Стуса'); fuzzy
+        # handles spelling variants ('Подольска'≈'Подільська').
+        if sl and rs_val and (sl in rs_val or rs_val in sl):
+            return 1.0
+        return difflib.SequenceMatcher(None, sl, rs_val).ratio()
+    sims = [(r, _score(_rs(r[2]))) for r in raw]
     return [r for r, s in sorted(sims, key=lambda x: -x[1]) if s >= 0.75]
 
 
