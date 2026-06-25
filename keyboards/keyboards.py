@@ -89,22 +89,15 @@ def cancel_kb() -> ReplyKeyboardMarkup:
 
 
 def city_picker_kb(candidates: list, role: str, field: str) -> InlineKeyboardMarkup:
-    """Disambiguation keyboard. Normally one button per city. But when several
-    matches share the same city, the city name can't tell them apart — show the
-    street+house instead so the buttons are distinguishable."""
+    """Disambiguation keyboard — one full address per button (street, house, city),
+    one per row, so the user sees both the street and the settlement."""
     builder = InlineKeyboardBuilder()
-    cities = [c for *_, c in candidates]
-    same_city = len(set(cities)) < len(cities)  # at least one duplicate city
     for i, (_lat, _lon, addr, city) in enumerate(candidates):
-        if same_city:
-            # street, house + city so the settlement is still visible
-            parts = [p.strip() for p in addr.split(",") if p.strip()]
-            label = ", ".join(parts[:2] + parts[2:][-1:]) if len(parts) > 2 else ", ".join(parts)
-            label = label or city
-        else:
-            label = city
+        parts = [p.strip() for p in (addr or "").split(",") if p.strip()]
+        # street + house + settlement (drops district/oblast/zip in the middle)
+        label = ", ".join(parts[:2] + parts[2:][-1:]) if len(parts) > 2 else (addr or city)
         builder.button(text=label, callback_data=f"pick_city:{role}:{field}:{i}")
-    builder.adjust(1 if same_city else 3)
+    builder.adjust(1)
     return builder.as_markup()
 
 
