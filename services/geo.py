@@ -700,13 +700,12 @@ async def _places_geocode(
             def _res_street(disp: str) -> str:
                 return _STREET_PREFIXES.sub("", disp.split(",")[0].strip()).strip().lower()
             sims = [(r, difflib.SequenceMatcher(None, sl, _res_street(r[2])).ratio()) for r in raw]
-            best = max((s for _, s in sims), default=0.0)
-            # When the user named a street, keep only the best-matching one. The margin
-            # below the best drops same-suffix different streets (Одеська 0.71 vs the
-            # query Подільська) while tolerating spelling variants ("Подольска" 0.84).
-            if best >= 0.6:
-                keep = max(0.6, best - 0.08)
-                raw = [r for r, s in sorted(sims, key=lambda x: -x[1]) if s >= keep]
+            # Text input is inherently ambiguous — surface several candidates so the
+            # user can pick. Just float the best street match to the top (handles
+            # spelling variants like "Подольска"≈"Подільська"); keep the rest as
+            # alternatives (capped to 5 by the dedup below).
+            if any(s >= 0.6 for _, s in sims):
+                raw = [r for r, _ in sorted(sims, key=lambda x: -x[1])]
 
     # Dedup only true duplicates (~150 m) — NOT by 5 km, which would collapse
     # different streets within one village into a single (possibly wrong) result.
