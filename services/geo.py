@@ -17,8 +17,11 @@ logger = logging.getLogger(__name__)
 _geocoder = Nominatim(user_agent=NOMINATIM_UA, timeout=10)
 _photon   = Photon(user_agent=NOMINATIM_UA, timeout=10)
 
-_GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
-_PLACES_TEXT_URL    = "https://places.googleapis.com/v1/places:searchText"
+_GOOGLE_GEOCODE_URL   = "https://maps.googleapis.com/maps/api/geocode/json"
+_PLACES_TEXT_URL      = "https://places.googleapis.com/v1/places:searchText"
+_PLACES_AUTOCOMPLETE_URL = "https://places.googleapis.com/v1/places:autocomplete"
+_PLACES_DETAILS_URL   = "https://places.googleapis.com/v1/places/"  # + place_id
+_PLACE_FIELDS = "location,formattedAddress,addressComponents,displayName,types"
 # After a hard auth/billing failure we pause an API for a cooldown and fall through,
 # then automatically retry. This way a transient denial (e.g. restriction change
 # still propagating, or Places API not yet enabled) self-heals without a redeploy.
@@ -625,6 +628,125 @@ def _places_format(place: dict) -> tuple[str, str]:
     return (display or place.get("formattedAddress", "") or "Невідома адреса"), city
 
 
+def _filter_by_street(raw: list, address: str, typed_city: str | None) -> list:
+    """Keep results whose street really matches the queried one (fuzzy, >=0.75),
+    best first. Separates spelling variants ('Подольска'≈'Подільська', 0.9+) from
+    same-suffix different streets ('Оболонська'/'Одеська', ~0.70). When the query has
+    no clear street (POI, bare city) the list is returned unchanged."""
+    street = _query_street(address, typed_city)
+    if not (street and len(street) >= 4):
+        return raw
+    sl = street.lower()
+    def _rs(disp: str) -> str:
+        return _STREET_PREFIXES.sub("", disp.split(",")[0].strip()).strip().lower()
+    sims = [(r, difflib.SequenceMatcher(None, sl, _rs(r[2])).ratio()) for r in raw]
+    return [r for r, s in sorted(sims, key=lambda x: -x[1]) if s >= 0.75]
+
+
+def _places_bias(near_lat, near_lon, home_city) -> dict | None:
+    lat, lon = None, None
+    if near_lat is not None and near_lon is not None:
+        lat, lon = near_lat, near_lon
+    elif home_city:
+        lat, lon = _UA_CITIES.get(home_city.lower(), (None, None))
+    if lat is None:
+        return None
+    return {"circle": {"center": {"latitude": lat, "longitude": lon}, "radius": 50000.0}}
+
+
+async def _place_details(session, place_id: str) -> dict | None:
+    """Resolve a Places autocomplete placeId to a full place (coords + components)."""
+    headers = {"X-Goog-Api-Key": GOOGLE_MAPS_API_KEY, "X-Goog-FieldMask": _PLACE_FIELDS}
+    url = f"{_PLACES_DETAILS_URL}{place_id}?languageCode=uk&regionCode=UA"
+    try:
+        async with session.get(url, headers=headers,
+                               timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status != 200:
+                return None
+            return await resp.json()
+    except Exception:
+        return None
+
+
+async def _places_autocomplete(
+    address: str,
+    near_lat: float | None = None,
+    near_lon: float | None = None,
+    home_city: str | None = None,
+) -> list[tuple[float, float, str, str]]:
+    """
+    Street search via Google Places Autocomplete (New) — the same API Google Maps
+    uses, so it surfaces a street across multiple cities (incl. villages) for the
+    user to pick. Resolves each prediction's coords via Place Details. Returns
+    [(lat, lon, display, city), ...] or [] (caller falls back to Text Search).
+    """
+    global _places_cooldown_until
+    if not GOOGLE_MAPS_API_KEY or time.monotonic() < _places_cooldown_until:
+        return []
+
+    body: dict = {"input": address, "languageCode": "uk", "regionCode": "UA"}
+    bias = _places_bias(near_lat, near_lon, home_city)
+    if bias:
+        body["locationBias"] = bias
+    headers = {"Content-Type": "application/json", "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY}
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(_PLACES_AUTOCOMPLETE_URL, json=body, headers=headers,
+                                    timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status in (401, 403, 429):
+                    logger.error("Places autocomplete paused %ds http=%s %s",
+                                 _GOOGLE_COOLDOWN_SEC, resp.status, (await resp.text())[:160])
+                    _places_cooldown_until = time.monotonic() + _GOOGLE_COOLDOWN_SEC
+                    return []
+                if resp.status != 200:
+                    return []
+                data = await resp.json()
+
+            place_ids: list[str] = []
+            for sug in data.get("suggestions", []):
+                pp = sug.get("placePrediction") or {}
+                pid = pp.get("placeId")
+                if pid:
+                    place_ids.append(pid)
+                if len(place_ids) >= 6:
+                    break
+            if not place_ids:
+                return []
+            details = await asyncio.gather(*[_place_details(session, p) for p in place_ids])
+    except Exception as e:
+        logger.warning("Places autocomplete error: %s", e)
+        return []
+
+    out: list[tuple[float, float, str, str]] = []
+    for det in details:
+        if not det:
+            continue
+        loc = det.get("location", {})
+        lat, lon = loc.get("latitude"), loc.get("longitude")
+        if lat is None or lon is None:
+            continue
+        if not _google_is_usable(_place_new_as_geo(det)):
+            continue
+        display, city = _places_format(det)
+        if any(haversine_km(lat, lon, u[0], u[1]) < 0.15 for u in out):
+            continue
+        out.append((lat, lon, display, city))
+        if len(out) >= 8:
+            break
+
+    # Drop autocomplete's "nearby alternatives" that aren't the queried street, then
+    # respect an explicitly named locality (fuzzy: 'крюковщина' ≈ 'Крюківщина').
+    typed_city = _intended_locality(address)
+    out = _filter_by_street(out, address, typed_city)[:5]
+    if typed_city and out:
+        out = [r for r in out if _city_match(typed_city, r[3])]
+
+    if out:
+        logger.info("Places autocomplete %r -> %d result(s)", address, len(out))
+    return out
+
+
 async def _places_geocode(
     address: str,
     near_lat: float | None = None,
@@ -743,8 +865,16 @@ async def geocode_address_multi(
     Used to offer city disambiguation when the same street exists in multiple cities.
     home_city biases results toward user's known city when no city is explicit in query.
 
-    Order: Places API (primary) → Geocoding API (fallback) → OSM (off by default).
+    Order: Autocomplete (multi-city street picker, like Google Maps) → Places Text
+    Search → Geocoding API → OSM (off by default).
     """
+    # Autocomplete gives the multi-city street picker (like Google Maps). Skip it for
+    # landmark searches ("метро …"), where Text Search ranks the station better.
+    if "метро" not in address.lower():
+        ac = await _places_autocomplete(address, near_lat, near_lon, home_city)
+        if ac:
+            return ac
+
     places = await _places_geocode(address, near_lat, near_lon, home_city)
     if places:
         return places
@@ -941,7 +1071,13 @@ async def geocode_address(
     Strategy (in order):
     0. Places API (primary) → Geocoding API (fallback) → OSM (off by default).
     """
-    # Places API first.
+    # Autocomplete first (best street recognition), then Text Search.
+    if "метро" not in address.lower():
+        ac = await _places_autocomplete(address, near_lat, near_lon)
+        if ac:
+            lat, lon, display, _city = ac[0]
+            return lat, lon, display
+
     places = await _places_geocode(address, near_lat, near_lon)
     if places:
         lat, lon, display, _city = places[0]
