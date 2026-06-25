@@ -1,5 +1,6 @@
 import math
 import asyncio
+import difflib
 import logging
 import re
 import time
@@ -563,6 +564,17 @@ async def _google_geocode(
     return out
 
 
+def _query_street(address: str, city: str | None) -> str:
+    """Extract the street-name core from a query: 'Подільська 1, Крюківщина' → 'Подільська'.
+    Used to prefer Places results whose address really sits on that street."""
+    s = address
+    if city:
+        s = re.sub(re.escape(city), "", s, flags=re.IGNORECASE)
+    s = _STREET_PREFIXES.sub("", s.strip())                       # drop вул./вулиця/просп…
+    s = re.sub(r"\b\d+[а-яіїєa-zA-Z]?(?:/\d+)?\b", "", s)         # drop house numbers
+    return s.strip().strip(",").strip()
+
+
 def _place_new_as_geo(place: dict) -> dict:
     """Adapt a Places API (New) place to the geocoding-result shape so we can reuse
     _google_is_usable (same address-component types)."""
@@ -656,7 +668,7 @@ async def _places_geocode(
         logger.warning("Places network error: %s", e)
         return []
 
-    out: list[tuple[float, float, str, str]] = []
+    raw: list[tuple[float, float, str, str]] = []
     for place in data.get("places", []):
         loc = place.get("location", {})
         lat, lon = loc.get("latitude"), loc.get("longitude")
@@ -665,14 +677,38 @@ async def _places_geocode(
         if not _google_is_usable(_place_new_as_geo(place)):
             continue
         display, city = _places_format(place)
-        if any(haversine_km(lat, lon, u[0], u[1]) < 5.0 for u in out):
+        raw.append((lat, lon, display, city))
+
+    typed_city = _intended_locality(address)
+
+    # Places ranks by relevance and can put an unrelated POI first (e.g. a condo named
+    # "Подільська 1" but addressed at "Одеська, 24"). When the user asked for a specific
+    # street, keep results whose street is a close match — fuzzy, because Google often
+    # stores a Russified/variant spelling ("Подольска" vs typed "Подільська").
+    street = _query_street(address, typed_city)
+    if street and len(street) >= 4:
+        sl = street.lower()
+        def _res_street(disp: str) -> str:
+            return _STREET_PREFIXES.sub("", disp.split(",")[0].strip()).strip().lower()
+        def _sim(r) -> float:
+            return difflib.SequenceMatcher(None, sl, _res_street(r[2])).ratio()
+        # Float the best street match to the top (handles spelling variants like
+        # "Подольска"≈"Подільська" while not over-promoting a similar-suffix street
+        # like "Одеська"). Only reorder when something actually resembles the street.
+        if any(_sim(r) >= 0.6 for r in raw):
+            raw = sorted(raw, key=_sim, reverse=True)
+
+    # Dedup only true duplicates (~150 m) — NOT by 5 km, which would collapse
+    # different streets within one village into a single (possibly wrong) result.
+    out: list[tuple[float, float, str, str]] = []
+    for r in raw:
+        if any(haversine_km(r[0], r[1], u[0], u[1]) < 0.15 for u in out):
             continue
-        out.append((lat, lon, display, city))
+        out.append(r)
         if len(out) >= 5:
             break
 
     # Respect an explicitly named locality (same rule as the Geocoding path).
-    typed_city = _intended_locality(address)
     if typed_city and out:
         ec = typed_city.lower()
         out = [r for r in out if r[3] and (ec in r[3].lower() or r[3].lower() in ec)]
