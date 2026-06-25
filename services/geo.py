@@ -684,33 +684,48 @@ async def _places_autocomplete(
     if not GOOGLE_MAPS_API_KEY or time.monotonic() < _places_cooldown_until:
         return []
 
-    body: dict = {"input": address, "languageCode": "uk", "regionCode": "UA"}
     bias = _places_bias(near_lat, near_lon, home_city)
-    if bias:
-        body["locationBias"] = bias
     headers = {"Content-Type": "application/json", "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY}
+
+    async def _predict(session, text: str) -> list[str]:
+        body: dict = {"input": text, "languageCode": "uk", "regionCode": "UA"}
+        if bias:
+            body["locationBias"] = bias
+        async with session.post(_PLACES_AUTOCOMPLETE_URL, json=body, headers=headers,
+                                timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status in (401, 403, 429):
+                logger.error("Places autocomplete paused %ds http=%s %s",
+                             _GOOGLE_COOLDOWN_SEC, resp.status, (await resp.text())[:160])
+                nonlocal_cooldown[0] = True
+                return []
+            if resp.status != 200:
+                return []
+            data = await resp.json()
+        return [pp["placeId"] for s in data.get("suggestions", [])
+                if (pp := s.get("placePrediction")) and pp.get("placeId")]
+
+    nonlocal_cooldown = [False]
+    # Ukrainian street spelling varies by soft sign — 'Подольська' vs the village's
+    # 'Подольска'. Query the input AND a 'ьк'→'к' variant so both spellings surface
+    # (this is how the local Крюківщина street appears for a 'подольська' query).
+    variant = address.replace("ьк", "к")
+    queries = [address] + ([variant] if variant != address else [])
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(_PLACES_AUTOCOMPLETE_URL, json=body, headers=headers,
-                                    timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                if resp.status in (401, 403, 429):
-                    logger.error("Places autocomplete paused %ds http=%s %s",
-                                 _GOOGLE_COOLDOWN_SEC, resp.status, (await resp.text())[:160])
-                    _places_cooldown_until = time.monotonic() + _GOOGLE_COOLDOWN_SEC
-                    return []
-                if resp.status != 200:
-                    return []
-                data = await resp.json()
-
+            id_lists = await asyncio.gather(*[_predict(session, q) for q in queries])
+            if nonlocal_cooldown[0]:
+                _places_cooldown_until = time.monotonic() + _GOOGLE_COOLDOWN_SEC
+                return []
+            seen: set = set()
             place_ids: list[str] = []
-            for sug in data.get("suggestions", []):
-                pp = sug.get("placePrediction") or {}
-                pid = pp.get("placeId")
-                if pid:
-                    place_ids.append(pid)
-                if len(place_ids) >= 6:
-                    break
+            for lst in id_lists:
+                for pid in lst:
+                    if pid not in seen:
+                        seen.add(pid)
+                        place_ids.append(pid)
+                    if len(place_ids) >= 8:
+                        break
             if not place_ids:
                 return []
             details = await asyncio.gather(*[_place_details(session, p) for p in place_ids])
