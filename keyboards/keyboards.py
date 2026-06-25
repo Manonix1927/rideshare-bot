@@ -97,7 +97,10 @@ def city_picker_kb(candidates: list, role: str, field: str) -> InlineKeyboardMar
     same_city = len(set(cities)) < len(cities)  # at least one duplicate city
     for i, (_lat, _lon, addr, city) in enumerate(candidates):
         if same_city:
-            label = ", ".join(p.strip() for p in addr.split(",")[:2]) or city  # street, house
+            # street, house + city so the settlement is still visible
+            parts = [p.strip() for p in addr.split(",") if p.strip()]
+            label = ", ".join(parts[:2] + parts[2:][-1:]) if len(parts) > 2 else ", ".join(parts)
+            label = label or city
         else:
             label = city
         builder.button(text=label, callback_data=f"pick_city:{role}:{field}:{i}")
