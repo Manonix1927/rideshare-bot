@@ -449,7 +449,7 @@ async def _google_call(query: str, bounds: str | None) -> list[tuple[float, floa
         if any(haversine_km(lat, lon, u[0], u[1]) < 5.0 for u in out):
             continue
         out.append((lat, lon, display, city))
-        if len(out) >= 5:
+        if len(out) >= 7:
             break
     return out
 
@@ -725,7 +725,7 @@ async def _places_autocomplete(
                     if pid not in seen:
                         seen.add(pid)
                         place_ids.append(pid)
-                    if len(place_ids) >= 8:
+                    if len(place_ids) >= 12:
                         break
             if not place_ids:
                 return []
@@ -748,13 +748,13 @@ async def _places_autocomplete(
         if any(haversine_km(lat, lon, u[0], u[1]) < 0.15 for u in out):
             continue
         out.append((lat, lon, display, city))
-        if len(out) >= 8:
+        if len(out) >= 12:
             break
 
     # Drop autocomplete's "nearby alternatives" that aren't the queried street, then
     # respect an explicitly named locality (fuzzy: 'крюковщина' ≈ 'Крюківщина').
     typed_city = _intended_locality(address)
-    out = _filter_by_street(out, address, typed_city)[:5]
+    out = _filter_by_street(out, address, typed_city)[:7]
     if typed_city and out:
         out = [r for r in out if _city_match(typed_city, r[3])]
 
@@ -858,7 +858,7 @@ async def _places_geocode(
         if any(haversine_km(r[0], r[1], u[0], u[1]) < 0.15 for u in out):
             continue
         out.append(r)
-        if len(out) >= 5:
+        if len(out) >= 7:
             break
 
     # Respect an explicitly named locality (fuzzy, so 'крюковщина' ≈ 'Крюківщина').

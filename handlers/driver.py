@@ -282,12 +282,9 @@ async def driver_to_text(message: Message, state: FSMContext) -> None:
     from_city = data.get("from_city", "")
 
     query = message.text
-    # Only append the origin city when the user named NO locality at all. Use the
-    # broad check so villages ("…, Віта-Поштова") count — otherwise we'd append
-    # "Київ" and resolve the village street to Kyiv.
-    if not _intended_locality(query) and from_city and from_city.lower() not in query.lower():
-        query = f"{query}, {from_city}"
-
+    # Don't force the origin city into the query — bias toward the origin area via
+    # near_lat/near_lon instead, so the destination offers the same multi-city street
+    # picker as the start address (user picks the right settlement).
     candidates = await geocode_address_multi(query, near_lat=near_lat, near_lon=near_lon)
     if not candidates:
         await message.answer(
