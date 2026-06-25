@@ -94,7 +94,8 @@ _CITY_PREFIX_RE = re.compile(
     r'[мm][іиыi]сто'   # місто / мисто / мысто / misто (кирилиця або Latin-m/i)
     r'|m[iy]sto'        # чисто латинська транслітерація: misto, mysto
     r'|город'           # російський синонім
-    r'|м\s*\.?\s*'      # м. / М . / м /  (абревіатура)
+    r'|м\.\s*'          # м. / м.Київ / М . (абревіатура з крапкою)
+    r'|м\s+'            # 'м Київ' — лише коли далі пробіл (щоб 'метро' не матчилось)
     r'|смт\s*\.?\s*'    # смт.
     r'|мст\s*\.?\s*'    # мст.
     r')\s*([Ѐ-ӿ][Ѐ-ӿ\'\-]+)',
@@ -685,8 +686,11 @@ async def _places_geocode(
     # "Подільська 1" but addressed at "Одеська, 24"). When the user asked for a specific
     # street, keep results whose street is a close match — fuzzy, because Google often
     # stores a Russified/variant spelling ("Подольска" vs typed "Подільська").
+    # POI/landmark searches ("метро Либідська") aren't street addresses — let Places
+    # rank them natively instead of forcing a street-name similarity filter.
+    is_poi_query = "метро" in address.lower()
     street = _query_street(address, typed_city)
-    if street and len(street) >= 4:
+    if street and len(street) >= 4 and not is_poi_query:
         sl = street.lower()
         def _res_street(disp: str) -> str:
             return _STREET_PREFIXES.sub("", disp.split(",")[0].strip()).strip().lower()
