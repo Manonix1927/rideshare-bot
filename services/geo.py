@@ -689,19 +689,24 @@ async def _places_geocode(
     # POI/landmark searches ("метро Либідська") aren't street addresses — let Places
     # rank them natively instead of forcing a street-name similarity filter.
     is_poi_query = "метро" in address.lower()
-    street = _query_street(address, typed_city)
-    if street and len(street) >= 4 and not is_poi_query:
-        sl = street.lower()
-        def _res_street(disp: str) -> str:
-            return _STREET_PREFIXES.sub("", disp.split(",")[0].strip()).strip().lower()
-        sims = [(r, difflib.SequenceMatcher(None, sl, _res_street(r[2])).ratio()) for r in raw]
-        best = max((s for _, s in sims), default=0.0)
-        # When the user named a street, keep only the best-matching one. The margin
-        # below the best drops same-suffix different streets (Одеська 0.71 vs the
-        # query Подільська) while tolerating spelling variants ("Подольска" 0.84).
-        if best >= 0.6:
-            keep = max(0.6, best - 0.08)
-            raw = [r for r, s in sorted(sims, key=lambda x: -x[1]) if s >= keep]
+    if is_poi_query and raw:
+        # A landmark search is unambiguous — take Places' single best hit (the station)
+        # instead of offering a picker of every nearby POI.
+        raw = raw[:1]
+    else:
+        street = _query_street(address, typed_city)
+        if street and len(street) >= 4:
+            sl = street.lower()
+            def _res_street(disp: str) -> str:
+                return _STREET_PREFIXES.sub("", disp.split(",")[0].strip()).strip().lower()
+            sims = [(r, difflib.SequenceMatcher(None, sl, _res_street(r[2])).ratio()) for r in raw]
+            best = max((s for _, s in sims), default=0.0)
+            # When the user named a street, keep only the best-matching one. The margin
+            # below the best drops same-suffix different streets (Одеська 0.71 vs the
+            # query Подільська) while tolerating spelling variants ("Подольска" 0.84).
+            if best >= 0.6:
+                keep = max(0.6, best - 0.08)
+                raw = [r for r, s in sorted(sims, key=lambda x: -x[1]) if s >= keep]
 
     # Dedup only true duplicates (~150 m) — NOT by 5 km, which would collapse
     # different streets within one village into a single (possibly wrong) result.
