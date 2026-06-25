@@ -144,7 +144,9 @@ async def driver_from_text(message: Message, state: FSMContext, session: AsyncSe
     if len(candidates) > 1:
         await state.update_data(city_candidates=candidates)
         await message.answer(
-            "📍 Знайдено вулицю у кількох містах. Оберіть потрібне:",
+            "📍 Знайдено вулицю у кількох містах. Оберіть потрібне:\n\n"
+            "💡 <i>Немає вашої вулиці? Введіть точніше — наприклад: Святошинська, 10, Київ</i>",
+            parse_mode="HTML",
             reply_markup=city_picker_kb(candidates, role="driver", field="from"),
         )
         return
@@ -302,7 +304,9 @@ async def driver_to_text(message: Message, state: FSMContext) -> None:
     if len(candidates) > 1:
         await state.update_data(city_candidates=candidates)
         await message.answer(
-            "📍 Знайдено вулицю у кількох містах. Оберіть потрібне:",
+            "📍 Знайдено вулицю у кількох містах. Оберіть потрібне:\n\n"
+            "💡 <i>Немає вашої вулиці? Введіть точніше — наприклад: Святошинська, 10, Київ</i>",
+            parse_mode="HTML",
             reply_markup=city_picker_kb(candidates, role="driver", field="to"),
         )
         return
