@@ -486,8 +486,7 @@ async def _google_geocode(
     def _matches_city(results: list) -> bool:
         if not typed_city:
             return True
-        ec = typed_city.lower()
-        return any(r[3] and (ec in r[3].lower() or r[3].lower() in ec) for r in results)
+        return any(_city_match(typed_city, r[3]) for r in results)
 
     def _is_coarse(results: list) -> bool:
         # locality-only result: display is just the settlement name, no street/POI
@@ -554,8 +553,7 @@ async def _google_geocode(
     # exist there (renamed "Ломоносова" in Київ), Google returns the nearest real match
     # elsewhere — drop those so we report "not found" rather than a wrong settlement.
     if typed_city and out:
-        ec = typed_city.lower()
-        matched = [r for r in out if r[3] and (ec in r[3].lower() or r[3].lower() in ec)]
+        matched = [r for r in out if _city_match(typed_city, r[3])]
         if not matched:
             logger.info("Google %r: typed city %r not matched (got %s) — dropping",
                         address, typed_city, [r[3] for r in out])
@@ -563,6 +561,15 @@ async def _google_geocode(
 
     logger.info("Google geocode %r -> %d result(s)", address, len(out))
     return out
+
+
+def _city_match(typed: str, actual: str) -> bool:
+    """Fuzzy settlement comparison so spelling variants match — e.g. the Russian
+    'крюковщина' vs Google's Ukrainian 'Крюківщина'."""
+    if not typed or not actual:
+        return False
+    t, a = typed.lower(), actual.lower()
+    return t in a or a in t or difflib.SequenceMatcher(None, t, a).ratio() >= 0.8
 
 
 def _query_street(address: str, city: str | None) -> str:
@@ -700,12 +707,11 @@ async def _places_geocode(
             def _res_street(disp: str) -> str:
                 return _STREET_PREFIXES.sub("", disp.split(",")[0].strip()).strip().lower()
             sims = [(r, difflib.SequenceMatcher(None, sl, _res_street(r[2])).ratio()) for r in raw]
-            # Text input is inherently ambiguous — surface several candidates so the
-            # user can pick. Just float the best street match to the top (handles
-            # spelling variants like "Подольска"≈"Подільська"); keep the rest as
-            # alternatives (capped to 5 by the dedup below).
-            if any(s >= 0.6 for _, s in sims):
-                raw = [r for r, _ in sorted(sims, key=lambda x: -x[1])]
+            # Keep only results whose street really matches (>=0.75) — separates
+            # spelling variants ("Подольска" 0.95, "Подільська" 0.90) from same-suffix
+            # different streets ("Оболонська"/"Одеська" ~0.70). Best first; up to 5 real
+            # candidates survive so the user can pick. If none match → [] (not found).
+            raw = [r for r, s in sorted(sims, key=lambda x: -x[1]) if s >= 0.75]
 
     # Dedup only true duplicates (~150 m) — NOT by 5 km, which would collapse
     # different streets within one village into a single (possibly wrong) result.
@@ -717,10 +723,9 @@ async def _places_geocode(
         if len(out) >= 5:
             break
 
-    # Respect an explicitly named locality (same rule as the Geocoding path).
+    # Respect an explicitly named locality (fuzzy, so 'крюковщина' ≈ 'Крюківщина').
     if typed_city and out:
-        ec = typed_city.lower()
-        out = [r for r in out if r[3] and (ec in r[3].lower() or r[3].lower() in ec)]
+        out = [r for r in out if _city_match(typed_city, r[3])]
 
     if out:
         logger.info("Places geocode %r -> %d result(s)", address, len(out))
