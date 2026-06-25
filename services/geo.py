@@ -567,12 +567,13 @@ async def _google_geocode(
 
 
 def _city_match(typed: str, actual: str) -> bool:
-    """Fuzzy settlement comparison so spelling variants match — e.g. the Russian
-    'крюковщина' vs Google's Ukrainian 'Крюківщина'."""
+    """Fuzzy settlement comparison so spelling variants match — Russian vs Ukrainian
+    ('Киев'≈'Київ' 0.75, 'Днепр'≈'Дніпро' 0.73) and 'крюковщина'≈'Крюківщина' (0.90).
+    Distinct cities stay well below (≤0.36), so 0.70 separates them safely."""
     if not typed or not actual:
         return False
     t, a = typed.lower(), actual.lower()
-    return t in a or a in t or difflib.SequenceMatcher(None, t, a).ratio() >= 0.8
+    return t in a or a in t or difflib.SequenceMatcher(None, t, a).ratio() >= 0.70
 
 
 def _query_street(address: str, city: str | None) -> str:
