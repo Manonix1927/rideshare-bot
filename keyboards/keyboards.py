@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from services import bot_settings as _s
-from services.timezone import today as _today
+from services.timezone import today as _today, now as _now
 from config import WEBAPP_URL
 
 from aiogram.types import (
@@ -33,8 +33,19 @@ def date_picker_kb() -> InlineKeyboardMarkup:
 
 def time_picker_kb(date_iso: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for hour in range(6, 24):
-        builder.button(text=f"{hour:02d}:00", callback_data=f"dt_time:{date_iso}:{hour:02d}:00")
+    if date_iso == _today().isoformat():
+        # Today: drop times that already passed and offer half-hour slots — start at
+        # the next :00/:30 after now (e.g. at 14:05 → 14:30, 15:00, …), but not before 06:00.
+        now = _now()
+        cur = now.hour * 60 + now.minute
+        start = max(((cur // 30) + 1) * 30, 6 * 60)  # next half-hour, floor 06:00
+        for m in range(start, 24 * 60, 30):
+            h, mm = divmod(m, 60)
+            builder.button(text=f"{h:02d}:{mm:02d}",
+                           callback_data=f"dt_time:{date_iso}:{h:02d}:{mm:02d}")
+    else:
+        for hour in range(6, 24):
+            builder.button(text=f"{hour:02d}:00", callback_data=f"dt_time:{date_iso}:{hour:02d}:00")
     builder.adjust(4)
     builder.row(InlineKeyboardButton(text="✏️ Ввести вручну", callback_data=f"dt_manual_time:{date_iso}"))
     return builder.as_markup()
