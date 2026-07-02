@@ -568,9 +568,12 @@ async def cancel_confirmed_reason(callback: CallbackQuery, session: AsyncSession
         await callback.answer("Ви не є учасником цієї поїздки.", show_alert=True)
         return
 
-    # Canceller's trip → CLOSED; partner's trip back to searching
-    match.status = "REJECTED"
-    match.rejection_reason = f"Скасовано учасником: {reason_text}"
+    # Canceller's trip → CLOSED; partner's trip back to searching.
+    # Recorded as CANCELLED (not REJECTED) — this cancels an already-CONFIRMED trip,
+    # same as the trip_actions.py "Форс-мажор" flow, so stats group them together.
+    match.status = "CANCELLED"
+    match.cancelled_by = "driver" if driver_trip.user_id == user_id else "passenger"
+    match.cancel_reason = reason_text
     if driver_trip.user_id == user_id:
         canceller_role = "Водій"
         driver_trip.status = "CLOSED"
