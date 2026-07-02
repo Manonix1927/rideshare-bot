@@ -110,7 +110,7 @@
 </div>
 
 <div class="row g-3">
-  <div class="col-12 col-xl-7">
+  <div class="col-12">
     <div class="card">
       <div class="card-header">🚗 Останні активні поїздки</div>
       <div class="table-responsive">
@@ -145,33 +145,6 @@
       </div>
       <div style="padding:10px 16px;border-top:1px solid #252836">
         <a href="/admin/trips" style="font-size:12px;color:#6c8ef7;text-decoration:none">Всі поїздки →</a>
-      </div>
-    </div>
-  </div>
-  <div class="col-12 col-xl-5">
-    <div class="card h-100">
-      <div class="card-header">📈 Статистика матчів</div>
-      <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="color:#9ca3af">✅ Підтверджені</span>
-          <span style="font-weight:600;color:#6c8ef7" id="mp-confirmed">{{ match_confirmed }}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="color:#9ca3af">❌ Скасовані</span>
-          <span style="font-weight:600;color:#f87171" id="mp-cancelled">{{ match_cancelled }}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="color:#9ca3af">🏁 Закриті</span>
-          <span style="font-weight:600;color:#6b7280" id="mp-closed">{{ match_closed }}</span>
-        </div>
-        <hr style="border-color:#252836;margin:4px 0">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="color:#9ca3af">Поїздок завершено (всього)</span>
-          <span style="font-weight:600;color:#4ade80">{{ trips_closed }}</span>
-        </div>
-        <div style="margin-top:8px">
-          <a href="/admin/matches" class="btn btn-primary btn-sm w-100">Переглянути матчі</a>
-        </div>
       </div>
     </div>
   </div>
