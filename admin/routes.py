@@ -7,9 +7,9 @@ import asyncio
 import hashlib
 import json
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from services.timezone import now as _now
+from services.timezone import now as _now, KYIV_TZ
 
 import aiohttp_jinja2
 import jinja2
@@ -114,9 +114,233 @@ def _pct(part: int, whole: int) -> int:
     return round(part / whole * 100) if whole else 0
 
 
+# ── Date-period filtering for the Dashboard ────────────────────────────────────
+# created_at columns are stored as naive UTC (datetime.utcnow default), while all
+# user-facing "now"/"today" in this codebase is naive Kyiv time — so period
+# boundaries are computed in Kyiv time, then converted to UTC for the DB query.
+
+def _kyiv_to_utc(dt: datetime) -> datetime:
+    return dt.replace(tzinfo=KYIV_TZ).astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _utc_to_kyiv(dt: datetime) -> datetime:
+    return dt.replace(tzinfo=timezone.utc).astimezone(KYIV_TZ).replace(tzinfo=None)
+
+
+PERIOD_LABELS = {
+    "all":        "За весь час",
+    "today":      "Сьогодні",
+    "month":      "Цього місяця",
+    "last_month": "Минулого місяця",
+    "year":       "За рік (12 місяців)",
+}
+
+
+def _resolve_period(period: str, from_str: str | None, to_str: str | None):
+    """Returns (utc_from: datetime|None, utc_to: datetime|None, label: str, period_key: str)."""
+    kn = _now()
+    if period == "today":
+        k_from = kn.replace(hour=0, minute=0, second=0, microsecond=0)
+        return _kyiv_to_utc(k_from), _kyiv_to_utc(kn), PERIOD_LABELS["today"], "today"
+    if period == "month":
+        k_from = kn.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return _kyiv_to_utc(k_from), _kyiv_to_utc(kn), PERIOD_LABELS["month"], "month"
+    if period == "last_month":
+        first_this = kn.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        last_end   = first_this - timedelta(seconds=1)
+        last_start = last_end.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return _kyiv_to_utc(last_start), _kyiv_to_utc(last_end), PERIOD_LABELS["last_month"], "last_month"
+    if period == "year":
+        k_from = (kn - timedelta(days=365)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return _kyiv_to_utc(k_from), _kyiv_to_utc(kn), PERIOD_LABELS["year"], "year"
+    if period == "custom" and from_str and to_str:
+        try:
+            d_from = datetime.strptime(from_str, "%Y-%m-%d")
+            d_to   = datetime.strptime(to_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            if d_from > d_to:
+                d_from, d_to = d_to.replace(hour=0, minute=0, second=0), d_from.replace(hour=23, minute=59, second=59)
+            label = f"{d_from.strftime('%d.%m.%Y')} — {d_to.strftime('%d.%m.%Y')}"
+            return _kyiv_to_utc(d_from), _kyiv_to_utc(d_to), label, "custom"
+        except ValueError:
+            pass
+    return None, None, PERIOD_LABELS["all"], "all"
+
+
+async def _compute_stats(s, utc_from: datetime | None, utc_to: datetime | None) -> dict:
+    """Period-filtered funnel, health KPIs, and cancellation/rejection breakdown."""
+    async def cnt(model, *where):
+        q = select(func.count()).select_from(model)
+        for w in where:
+            q = q.where(w)
+        return (await s.execute(q)).scalar() or 0
+
+    trip_conds  = [Trip.created_at >= utc_from] if utc_from else []
+    trip_conds += [Trip.created_at <= utc_to] if utc_to else []
+    match_conds  = [Match.created_at >= utc_from] if utc_from else []
+    match_conds += [Match.created_at <= utc_to] if utc_to else []
+    rating_conds  = [Rating.created_at >= utc_from] if utc_from else []
+    rating_conds += [Rating.created_at <= utc_to] if utc_to else []
+
+    trips_total = await cnt(Trip, *trip_conds)
+    q = select(Trip.id)
+    for w in trip_conds:
+        q = q.where(w)
+    period_trip_ids = set((await s.execute(q)).scalars().all())
+
+    # Trips (created in period) that ever got at least one match (any time)
+    d_ids = set((await s.execute(select(distinct(Match.driver_trip_id)))).scalars().all())
+    p_ids = set((await s.execute(select(distinct(Match.passenger_trip_id)))).scalars().all())
+    trips_matched = len(period_trip_ids & (d_ids | p_ids))
+
+    matches_total    = await cnt(Match, *match_conds)
+    matches_dealt    = await cnt(Match, *match_conds, Match.status.in_(["CONFIRMED", "CLOSED"]))
+    matches_departed = await cnt(Match, *match_conds, Match.driver_departed == True)
+
+    q = select(func.count(distinct(Rating.match_id)))
+    for w in rating_conds:
+        q = q.where(w)
+    matches_rated = (await s.execute(q)).scalar() or 0
+
+    match_confirmed = await cnt(Match, *match_conds, Match.status == "CONFIRMED")
+    match_cancelled = await cnt(Match, *match_conds, Match.status == "CANCELLED")
+    match_closed    = await cnt(Match, *match_conds, Match.status == "CLOSED")
+
+    funnel = [
+        ("Поїздок створено", trips_total,      100),
+        ("Співпадінь",       trips_matched,    _pct(trips_matched, trips_total)),
+        ("Підтверджено",     matches_dealt,    _pct(matches_dealt, trips_total)),
+        ("Виїзд відбувся",   matches_departed, _pct(matches_departed, trips_total)),
+        ("Оцінено",          matches_rated,    _pct(matches_rated, trips_total)),
+    ]
+    match_success = _pct(matches_dealt, matches_total)
+    completion    = _pct(matches_departed, matches_dealt)
+    rating_cov    = _pct(matches_rated, matches_dealt)
+
+    q = select(func.count(distinct(Trip.user_id)))
+    for w in trip_conds:
+        q = q.where(w)
+    active_users = (await s.execute(q)).scalar() or 0
+
+    # Cancellation / rejection reason breakdown — approximated by Match.created_at,
+    # since there's no separate "cancelled at" timestamp on the model.
+    q = select(Match).where(Match.status.in_(["CANCELLED", "REJECTED"]))
+    for w in match_conds:
+        q = q.where(w)
+    cancel_rows = (await s.execute(q)).scalars().all()
+
+    driver_reasons: dict[str, int] = {}
+    passenger_reasons: dict[str, int] = {}
+    rejection_counts: dict[str, int] = {}
+    for m in cancel_rows:
+        cr = m.cancel_reason
+        if cr:
+            if m.cancelled_by == "driver":
+                driver_reasons[cr] = driver_reasons.get(cr, 0) + 1
+            elif m.cancelled_by == "passenger":
+                passenger_reasons[cr] = passenger_reasons.get(cr, 0) + 1
+        rr = m.rejection_reason
+        if rr:
+            rejection_counts[rr] = rejection_counts.get(rr, 0) + 1
+
+    return {
+        "funnel": funnel,
+        "match_success": match_success,
+        "completion": completion,
+        "rating_cov": rating_cov,
+        "active_users": active_users,
+        "match_confirmed": match_confirmed,
+        "match_cancelled": match_cancelled,
+        "match_closed": match_closed,
+        "driver_reasons":    sorted(driver_reasons.items(),    key=lambda x: -x[1]),
+        "passenger_reasons": sorted(passenger_reasons.items(), key=lambda x: -x[1]),
+        "rejections":        sorted(rejection_counts.items(),  key=lambda x: -x[1]),
+    }
+
+
+async def _compute_chart(s, period_key: str, utc_from: datetime | None, utc_to: datetime | None) -> dict:
+    """New-users / new-trips chart, bucketed hourly (today), daily (month-scale), or
+    monthly (year / all-time / long custom range)."""
+    kn = _now()
+    if period_key == "today":
+        bucket_type = "hour"
+        start_kyiv, end_kyiv = kn.replace(hour=0, minute=0, second=0, microsecond=0), kn
+    elif period_key == "all":
+        bucket_type = "month"
+        earliest = (await s.execute(select(func.min(Trip.created_at)))).scalar()
+        earliest_u = (await s.execute(select(func.min(User.created_at)))).scalar()
+        cands = [d for d in (earliest, earliest_u) if d is not None]
+        start_kyiv = _utc_to_kyiv(min(cands)) if cands else (kn - timedelta(days=365))
+        start_kyiv = max(start_kyiv, kn - timedelta(days=36 * 31))  # cap history to ~36 months
+        end_kyiv = kn
+    else:
+        start_kyiv, end_kyiv = _utc_to_kyiv(utc_from), _utc_to_kyiv(utc_to)
+        if period_key in ("month", "last_month"):
+            bucket_type = "day"
+        elif period_key == "year":
+            bucket_type = "month"
+        else:  # custom
+            bucket_type = "day" if (end_kyiv.date() - start_kyiv.date()).days <= 62 else "month"
+
+    buckets: list[tuple[datetime, datetime, str]] = []
+    if bucket_type == "hour":
+        day0 = start_kyiv.replace(hour=0, minute=0, second=0, microsecond=0)
+        for h in range(24):
+            bs = day0 + timedelta(hours=h)
+            if bs > end_kyiv:
+                break
+            buckets.append((_kyiv_to_utc(bs), _kyiv_to_utc(bs + timedelta(hours=1)), f"{h:02d}:00"))
+    elif bucket_type == "day":
+        d = start_kyiv.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_day = end_kyiv.replace(hour=0, minute=0, second=0, microsecond=0)
+        while d <= end_day:
+            buckets.append((_kyiv_to_utc(d), _kyiv_to_utc(d + timedelta(days=1)), d.strftime("%d.%m")))
+            d += timedelta(days=1)
+    else:  # month
+        cur = start_kyiv.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end_month = end_kyiv.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        months = []
+        while cur <= end_month and len(months) < 37:
+            months.append(cur)
+            cur = (cur.replace(year=cur.year + 1, month=1) if cur.month == 12
+                   else cur.replace(month=cur.month + 1))
+        for i, m in enumerate(months):
+            nxt = months[i + 1] if i + 1 < len(months) else (
+                m.replace(year=m.year + 1, month=1) if m.month == 12 else m.replace(month=m.month + 1))
+            buckets.append((_kyiv_to_utc(m), _kyiv_to_utc(nxt), m.strftime("%m.%Y")))
+
+    if not buckets:
+        return {"labels": [], "users": [], "trips": []}
+
+    range_start, range_end = buckets[0][0], buckets[-1][1]
+    user_dts = (await s.execute(
+        select(User.created_at).where(User.created_at >= range_start, User.created_at < range_end)
+    )).scalars().all()
+    trip_dts = (await s.execute(
+        select(Trip.created_at).where(Trip.created_at >= range_start, Trip.created_at < range_end)
+    )).scalars().all()
+
+    def _idx(dt):
+        for i, (bs, be, _l) in enumerate(buckets):
+            if bs <= dt < be:
+                return i
+        return None
+
+    users_counts = [0] * len(buckets)
+    for dt in user_dts:
+        i = _idx(dt)
+        if i is not None:
+            users_counts[i] += 1
+    trips_counts = [0] * len(buckets)
+    for dt in trip_dts:
+        i = _idx(dt)
+        if i is not None:
+            trips_counts[i] += 1
+
+    return {"labels": [b[2] for b in buckets], "users": users_counts, "trips": trips_counts}
+
+
 @_require_auth
 async def admin_dashboard(request: web.Request) -> web.Response:
-    now = _now()
     async with AsyncSessionLocal() as s:
         async def cnt(model, *where):
             q = select(func.count()).select_from(model)
@@ -129,49 +353,9 @@ async def admin_dashboard(request: web.Request) -> web.Response:
         trips_active    = await cnt(Trip, Trip.status == "ACTIVE")
         trips_confirmed = await cnt(Trip, Trip.status == "CONFIRMED")
         trips_closed    = await cnt(Trip, Trip.status == "CLOSED")
-        match_confirmed = await cnt(Match, Match.status == "CONFIRMED")
-        match_cancelled = await cnt(Match, Match.status == "CANCELLED")
-        match_closed    = await cnt(Match, Match.status == "CLOSED")
         unread_tickets  = await cnt(SupportTicket, SupportTicket.is_read == False)
 
-        # ── Conversion funnel ──────────────────────────────────────────────
-        trips_total   = await cnt(Trip)
-        matches_total = await cnt(Match)
-        # Trips that ever got at least one match (driver OR passenger side)
-        d_ids = set((await s.execute(select(distinct(Match.driver_trip_id)))).scalars().all())
-        p_ids = set((await s.execute(select(distinct(Match.passenger_trip_id)))).scalars().all())
-        trips_matched = len(d_ids | p_ids)
-        # CONFIRMED + CLOSED = a deal was struck (CLOSED = completed)
-        matches_dealt    = await cnt(Match, Match.status.in_(["CONFIRMED", "CLOSED"]))
-        matches_departed = await cnt(Match, Match.driver_departed == True)
-        matches_rated    = (await s.execute(
-            select(func.count(distinct(Rating.match_id)))
-        )).scalar() or 0
-
-        funnel = [
-            ("Поїздок створено",   trips_total,      100),
-            ("Співпадінь",         trips_matched,    _pct(trips_matched, trips_total)),
-            ("Підтверджено",       matches_dealt,    _pct(matches_dealt, trips_total)),
-            ("Виїзд відбувся",     matches_departed, _pct(matches_departed, trips_total)),
-            ("Оцінено",            matches_rated,    _pct(matches_rated, trips_total)),
-        ]
-
-        # ── Health KPIs ────────────────────────────────────────────────────
-        match_success = _pct(matches_dealt, matches_total)        # deals / all matches
-        completion    = _pct(matches_departed, matches_dealt)      # departed / deals
-        rating_cov    = _pct(matches_rated, matches_dealt)         # rated / deals
-
-        # ── Active users (distinct trip creators in window) ────────────────
-        async def active_since(days):
-            since = now - timedelta(days=days)
-            return (await s.execute(
-                select(func.count(distinct(Trip.user_id))).where(Trip.created_at >= since)
-            )).scalar() or 0
-        dau = await active_since(1)
-        wau = await active_since(7)
-        mau = await active_since(30)
-
-        # Avg rating across users who have one
+        # Avg rating is a reputation snapshot, not a period event — always all-time.
         avg_rating = (await s.execute(
             select(func.avg(User.rating)).where(User.rating.isnot(None))
         )).scalar()
@@ -182,6 +366,11 @@ async def admin_dashboard(request: web.Request) -> web.Response:
             .order_by(Trip.created_at.desc()).limit(5)
         )).scalars().all()
 
+        # Initial paint = "За весь час", matching the default active filter button.
+        utc_from, utc_to, label, period_key = _resolve_period("all", None, None)
+        period_stats = await _compute_stats(s, utc_from, utc_to)
+        chart = await _compute_chart(s, period_key, utc_from, utc_to)
+
     ctx = {
         "active": "dashboard",
         "users_total": users_total,
@@ -189,20 +378,27 @@ async def admin_dashboard(request: web.Request) -> web.Response:
         "trips_active": trips_active,
         "trips_confirmed": trips_confirmed,
         "trips_closed": trips_closed,
-        "match_confirmed": match_confirmed,
-        "match_cancelled": match_cancelled,
-        "match_closed": match_closed,
         "unread_tickets": unread_tickets,
         "recent_trips": recent_trips,
-        # New analytics
-        "funnel": funnel,
-        "match_success": match_success,
-        "completion": completion,
-        "rating_cov": rating_cov,
-        "dau": dau, "wau": wau, "mau": mau,
         "avg_rating": f"{avg_rating:.2f}" if avg_rating is not None else "—",
+        "period_label": label,
+        **period_stats,
+        "chart_json": json.dumps(chart, ensure_ascii=False),
     }
     return aiohttp_jinja2.render_template("dashboard.html", request, ctx)
+
+
+async def api_dashboard_stats(request: web.Request) -> web.Response:
+    if not _is_authed(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    period   = request.rel_url.query.get("period", "all")
+    from_str = request.rel_url.query.get("from")
+    to_str   = request.rel_url.query.get("to")
+    utc_from, utc_to, label, period_key = _resolve_period(period, from_str, to_str)
+    async with AsyncSessionLocal() as s:
+        stats = await _compute_stats(s, utc_from, utc_to)
+        chart = await _compute_chart(s, period_key, utc_from, utc_to)
+    return web.json_response({"label": label, **stats, "chart": chart})
 
 
 # ── Trips ─────────────────────────────────────────────────────────────────────
@@ -744,41 +940,6 @@ async def admin_banner_save(request: web.Request) -> web.Response:
     raise web.HTTPFound("/admin/broadcast")
 
 
-# ── Stats ─────────────────────────────────────────────────────────────────────
-
-@_require_auth
-async def admin_stats(request: web.Request) -> web.Response:
-    async with AsyncSessionLocal() as s:
-        matches = (await s.execute(
-            select(Match).where(Match.status.in_(["CANCELLED", "REJECTED"]))
-        )).scalars().all()
-
-    driver_reasons: dict[str, int] = {}
-    passenger_reasons: dict[str, int] = {}
-    rejection_counts: dict[str, int] = {}
-
-    for m in matches:
-        cr = getattr(m, "cancel_reason", None)
-        if cr:
-            cb = getattr(m, "cancelled_by", None)
-            if cb == "driver":
-                driver_reasons[cr] = driver_reasons.get(cr, 0) + 1
-            elif cb == "passenger":
-                passenger_reasons[cr] = passenger_reasons.get(cr, 0) + 1
-        rr = getattr(m, "rejection_reason", None)
-        if rr:
-            rejection_counts[rr] = rejection_counts.get(rr, 0) + 1
-
-    return aiohttp_jinja2.render_template("stats.html", request, {
-        "active": "stats",
-        "driver_reasons":    sorted(driver_reasons.items(),    key=lambda x: -x[1]),
-        "passenger_reasons": sorted(passenger_reasons.items(), key=lambda x: -x[1]),
-        "rejections":        sorted(rejection_counts.items(),  key=lambda x: -x[1]),
-        "total_cancelled":   sum(1 for m in matches if m.status == "CANCELLED"),
-        "total_rejected":    sum(1 for m in matches if m.status == "REJECTED"),
-    })
-
-
 # ── Trust & Safety ────────────────────────────────────────────────────────────
 
 @_require_auth
@@ -1025,40 +1186,6 @@ async def admin_export_trips(request: web.Request) -> web.Response:
     )
 
 
-# ── API: daily stats ──────────────────────────────────────────────────────────
-
-async def api_stats_daily(request: web.Request) -> web.Response:
-    if not _is_authed(request):
-        return web.json_response({"error": "unauthorized"}, status=401)
-
-    now = _now()
-    since = now - timedelta(days=29)
-
-    async with AsyncSessionLocal() as s:
-        user_dts = (await s.execute(
-            select(User.created_at).where(User.created_at >= since)
-        )).scalars().all()
-        trip_dts = (await s.execute(
-            select(Trip.created_at).where(Trip.created_at >= since)
-        )).scalars().all()
-
-    labels = [(now - timedelta(days=i)).strftime("%m-%d") for i in range(29, -1, -1)]
-    uc: dict[str, int] = {}
-    for dt in user_dts:
-        if dt:
-            uc[dt.strftime("%m-%d")] = uc.get(dt.strftime("%m-%d"), 0) + 1
-    tc: dict[str, int] = {}
-    for dt in trip_dts:
-        if dt:
-            tc[dt.strftime("%m-%d")] = tc.get(dt.strftime("%m-%d"), 0) + 1
-
-    return web.json_response({
-        "labels": labels,
-        "users":  [uc.get(l, 0) for l in labels],
-        "trips":  [tc.get(l, 0) for l in labels],
-    })
-
-
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
 def setup_admin(app: web.Application) -> None:
@@ -1100,8 +1227,6 @@ def setup_admin(app: web.Application) -> None:
     app.router.add_post("/admin/broadcast",          admin_broadcast_post)
     app.router.add_post("/admin/broadcast/banner",   admin_banner_save)
     app.router.add_get ("/admin/api/broadcast/status", api_broadcast_status)
-    # Stats
-    app.router.add_get ("/admin/stats",              admin_stats)
     # Manual match
     app.router.add_get ("/admin/manual-match",       admin_manual_match_get)
     app.router.add_post("/admin/manual-match",       admin_manual_match_post)
@@ -1112,4 +1237,4 @@ def setup_admin(app: web.Application) -> None:
     app.router.add_get ("/admin/api/settings",       api_settings_get)
     app.router.add_post("/admin/api/settings/{key}", api_settings_set)
     app.router.add_get ("/admin/api/trips/map",      api_trips_map)
-    app.router.add_get ("/admin/api/stats/daily",    api_stats_daily)
+    app.router.add_get ("/admin/api/dashboard/stats", api_dashboard_stats)

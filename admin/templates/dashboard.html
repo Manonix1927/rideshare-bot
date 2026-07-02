@@ -4,6 +4,25 @@
 {% block content %}
 <div class="page-title">📊 Dashboard</div>
 
+<!-- Period filter -->
+<div class="card mb-4">
+  <div style="padding:12px 16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <button class="btn btn-sm period-btn btn-primary" data-period="all">За весь час</button>
+    <button class="btn btn-sm period-btn btn-outline-secondary" data-period="today">Сьогодні</button>
+    <button class="btn btn-sm period-btn btn-outline-secondary" data-period="month">Цього місяця</button>
+    <button class="btn btn-sm period-btn btn-outline-secondary" data-period="last_month">Минулого місяця</button>
+    <button class="btn btn-sm period-btn btn-outline-secondary" data-period="year">За рік (12 місяців)</button>
+    <button class="btn btn-sm period-btn btn-outline-secondary" id="btn-custom-toggle">🗓 Ввести дати</button>
+    <span id="period-status" style="font-size:12px;color:var(--muted);margin-left:auto">Дані за: <b id="period-label">{{ period_label }}</b></span>
+  </div>
+  <div id="custom-range" style="display:none;padding:0 16px 14px;gap:8px;align-items:center;flex-wrap:wrap">
+    <input type="date" id="custom-from" class="form-control form-control-sm" style="max-width:160px">
+    <span style="color:var(--muted)">—</span>
+    <input type="date" id="custom-to" class="form-control form-control-sm" style="max-width:160px">
+    <button class="btn btn-sm btn-primary" id="btn-custom-apply">Застосувати</button>
+  </div>
+</div>
+
 <div class="row g-3 mb-4">
   <div class="col-6 col-xl-3">
     <div class="stat-card">
@@ -21,9 +40,9 @@
   </div>
   <div class="col-6 col-xl-3">
     <div class="stat-card">
-      <div class="stat-val" style="color:#6c8ef7">{{ match_confirmed }}</div>
+      <div class="stat-val" style="color:#6c8ef7" id="mp-confirmed-top">{{ match_confirmed }}</div>
       <div class="stat-lbl">Підтверджених матчів</div>
-      <div style="font-size:11px;color:#f87171;margin-top:4px">{{ match_cancelled }} скасовано</div>
+      <div style="font-size:11px;color:#f87171;margin-top:4px"><span id="mp-cancelled-top">{{ match_cancelled }}</span> скасовано</div>
     </div>
   </div>
   <div class="col-6 col-xl-3">
@@ -48,10 +67,10 @@
         <div>
           <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
             <span style="color:#9ca3af">{{ label }}</span>
-            <span style="color:var(--text);font-weight:600">{{ value }} <span style="color:#6b7280">· {{ pct }}%</span></span>
+            <span style="color:var(--text);font-weight:600"><span id="f-val-{{ loop.index0 }}">{{ value }}</span> <span style="color:#6b7280">· <span id="f-pct-{{ loop.index0 }}">{{ pct }}</span>%</span></span>
           </div>
           <div style="height:8px;background:var(--input-bg);border-radius:5px;overflow:hidden">
-            <div style="height:100%;width:{{ pct }}%;background:{{ colors[loop.index0] }};border-radius:5px"></div>
+            <div id="f-bar-{{ loop.index0 }}" style="height:100%;width:{{ pct }}%;background:{{ colors[loop.index0] }};border-radius:5px;transition:width .3s"></div>
           </div>
         </div>
         {% endfor %}
@@ -63,15 +82,15 @@
       <div class="card-header">💚 Здоров'я сервісу</div>
       <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div>
-          <div class="stat-val" style="font-size:24px;color:#4ade80">{{ match_success }}%</div>
+          <div class="stat-val" style="font-size:24px;color:#4ade80" id="kpi-success">{{ match_success }}%</div>
           <div class="stat-lbl">Успішність матчів</div>
         </div>
         <div>
-          <div class="stat-val" style="font-size:24px;color:#6c8ef7">{{ completion }}%</div>
+          <div class="stat-val" style="font-size:24px;color:#6c8ef7" id="kpi-completion">{{ completion }}%</div>
           <div class="stat-lbl">Виїздів від угод</div>
         </div>
         <div>
-          <div class="stat-val" style="font-size:24px;color:#fbbf24">{{ rating_cov }}%</div>
+          <div class="stat-val" style="font-size:24px;color:#fbbf24" id="kpi-rating-cov">{{ rating_cov }}%</div>
           <div class="stat-lbl">Покриття оцінками</div>
         </div>
         <div>
@@ -79,8 +98,8 @@
           <div class="stat-lbl">Середній рейтинг</div>
         </div>
         <div>
-          <div class="stat-val" style="font-size:24px">{{ dau }} <span style="font-size:13px;color:#6b7280">/{{ wau }}/{{ mau }}</span></div>
-          <div class="stat-lbl">Активні D / W / M</div>
+          <div class="stat-val" style="font-size:24px" id="kpi-active-users">{{ active_users }}</div>
+          <div class="stat-lbl">Активні користувачі</div>
         </div>
         <div style="display:flex;align-items:end">
           <a href="/admin/safety" class="btn btn-primary btn-sm w-100">🛡 Безпека →</a>
@@ -135,19 +154,19 @@
       <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="color:#9ca3af">✅ Підтверджені</span>
-          <span style="font-weight:600;color:#6c8ef7">{{ match_confirmed }}</span>
+          <span style="font-weight:600;color:#6c8ef7" id="mp-confirmed">{{ match_confirmed }}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="color:#9ca3af">❌ Скасовані</span>
-          <span style="font-weight:600;color:#f87171">{{ match_cancelled }}</span>
+          <span style="font-weight:600;color:#f87171" id="mp-cancelled">{{ match_cancelled }}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="color:#9ca3af">🏁 Закриті</span>
-          <span style="font-weight:600;color:#6b7280">{{ match_closed }}</span>
+          <span style="font-weight:600;color:#6b7280" id="mp-closed">{{ match_closed }}</span>
         </div>
         <hr style="border-color:#252836;margin:4px 0">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="color:#9ca3af">Поїздок завершено</span>
+          <span style="color:#9ca3af">Поїздок завершено (всього)</span>
           <span style="font-weight:600;color:#4ade80">{{ trips_closed }}</span>
         </div>
         <div style="margin-top:8px">
@@ -158,51 +177,197 @@
   </div>
 </div>
 
+<!-- Cancellation / rejection reasons -->
+<div class="row g-3 mt-1">
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">🚗 Скасування водіями</div>
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead><tr><th>Причина</th><th style="text-align:right;width:60px">К-сть</th></tr></thead>
+          <tbody id="tbody-driver-reasons">
+            {% for reason, count in driver_reasons %}
+            <tr><td>{{ reason or '—' }}</td><td style="text-align:right;color:#6c8ef7;font-weight:600">{{ count }}</td></tr>
+            {% else %}
+            <tr><td colspan="2" style="padding:20px;text-align:center;color:var(--muted)">Немає даних</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">🙋 Скасування пасажирами</div>
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead><tr><th>Причина</th><th style="text-align:right;width:60px">К-сть</th></tr></thead>
+          <tbody id="tbody-passenger-reasons">
+            {% for reason, count in passenger_reasons %}
+            <tr><td>{{ reason or '—' }}</td><td style="text-align:right;color:#c084fc;font-weight:600">{{ count }}</td></tr>
+            {% else %}
+            <tr><td colspan="2" style="padding:20px;text-align:center;color:var(--muted)">Немає даних</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">❌ Причини відхилень</div>
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead><tr><th>Причина</th><th style="text-align:right;width:60px">К-сть</th></tr></thead>
+          <tbody id="tbody-rejections">
+            {% for reason, count in rejections %}
+            <tr><td>{{ reason or '—' }}</td><td style="text-align:right;color:#f87171;font-weight:600">{{ count }}</td></tr>
+            {% else %}
+            <tr><td colspan="2" style="padding:20px;text-align:center;color:var(--muted)">Немає даних</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Charts -->
 <div class="row g-3 mt-1">
   <div class="col-12 col-xl-6">
     <div class="card">
-      <div class="card-header">👥 Нові користувачі (30 днів)</div>
+      <div class="card-header">👥 Нові користувачі</div>
       <div style="padding:16px"><canvas id="chartUsers" height="120"></canvas></div>
     </div>
   </div>
   <div class="col-12 col-xl-6">
     <div class="card">
-      <div class="card-header">🚗 Нові поїздки (30 днів)</div>
+      <div class="card-header">🚗 Нові поїздки</div>
       <div style="padding:16px"><canvas id="chartTrips" height="120"></canvas></div>
     </div>
   </div>
 </div>
+
+<script type="application/json" id="initial-chart-data">{{ chart_json|safe }}</script>
 {% endblock %}
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
-fetch('/admin/api/stats/daily')
-  .then(r => r.json())
-  .then(d => {
-    const isDark = document.getElementById('html-root').getAttribute('data-bs-theme') === 'dark';
-    const gc = isDark ? '#252836' : '#e5e7eb';
-    const tc = isDark ? '#6b7280' : '#374151';
-    const opts = (color) => ({
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: gc }, ticks: { color: tc, maxTicksLimit: 10, font: { size: 10 } } },
-        y: { grid: { color: gc }, ticks: { color: tc, precision: 0, font: { size: 10 } }, beginAtZero: true },
-      }
+(function () {
+  const isDark = document.getElementById('html-root').getAttribute('data-bs-theme') === 'dark';
+  const gc = isDark ? '#252836' : '#e5e7eb';
+  const tc = isDark ? '#6b7280' : '#374151';
+  const chartOpts = () => ({
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: gc }, ticks: { color: tc, maxTicksLimit: 12, font: { size: 10 } } },
+      y: { grid: { color: gc }, ticks: { color: tc, precision: 0, font: { size: 10 } }, beginAtZero: true },
+    }
+  });
+
+  const initialChart = JSON.parse(document.getElementById('initial-chart-data').textContent || '{}');
+
+  const chartUsers = new Chart(document.getElementById('chartUsers'), {
+    type: 'line',
+    data: { labels: initialChart.labels || [], datasets: [{ label: 'Користувачі', data: initialChart.users || [],
+      borderColor: '#6c8ef7', backgroundColor: '#6c8ef720', fill: true, tension: 0.35, pointRadius: 2 }] },
+    options: chartOpts(),
+  });
+  const chartTrips = new Chart(document.getElementById('chartTrips'), {
+    type: 'bar',
+    data: { labels: initialChart.labels || [], datasets: [{ label: 'Поїздки', data: initialChart.trips || [],
+      backgroundColor: '#4ade8050', borderColor: '#4ade80', borderWidth: 1, borderRadius: 3 }] },
+    options: chartOpts(),
+  });
+
+  function renderReasonTable(tbodyId, rows, color) {
+    const tbody = document.getElementById(tbodyId);
+    if (!rows || !rows.length) {
+      tbody.innerHTML = '<tr><td colspan="2" style="padding:20px;text-align:center;color:var(--muted)">Немає даних</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(([reason, count]) =>
+      `<tr><td>${reason || '—'}</td><td style="text-align:right;color:${color};font-weight:600">${count}</td></tr>`
+    ).join('');
+  }
+
+  function renderStats(data) {
+    (data.funnel || []).forEach((row, i) => {
+      const [, value, pct] = row;
+      const val = document.getElementById(`f-val-${i}`);
+      const pctEl = document.getElementById(`f-pct-${i}`);
+      const bar = document.getElementById(`f-bar-${i}`);
+      if (val) val.textContent = value;
+      if (pctEl) pctEl.textContent = pct;
+      if (bar) bar.style.width = pct + '%';
     });
-    new Chart(document.getElementById('chartUsers'), {
-      type: 'line',
-      data: { labels: d.labels, datasets: [{ label: 'Користувачі', data: d.users,
-        borderColor: '#6c8ef7', backgroundColor: '#6c8ef720', fill: true, tension: 0.35, pointRadius: 2 }] },
-      options: opts('#6c8ef7'),
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    set('kpi-success', data.match_success + '%');
+    set('kpi-completion', data.completion + '%');
+    set('kpi-rating-cov', data.rating_cov + '%');
+    set('kpi-active-users', data.active_users);
+    set('mp-confirmed', data.match_confirmed);
+    set('mp-cancelled', data.match_cancelled);
+    set('mp-closed', data.match_closed);
+    set('mp-confirmed-top', data.match_confirmed);
+    set('mp-cancelled-top', data.match_cancelled);
+    set('period-label', data.label);
+
+    renderReasonTable('tbody-driver-reasons', data.driver_reasons, '#6c8ef7');
+    renderReasonTable('tbody-passenger-reasons', data.passenger_reasons, '#c084fc');
+    renderReasonTable('tbody-rejections', data.rejections, '#f87171');
+
+    if (data.chart) {
+      chartUsers.data.labels = data.chart.labels;
+      chartUsers.data.datasets[0].data = data.chart.users;
+      chartUsers.update();
+      chartTrips.data.labels = data.chart.labels;
+      chartTrips.data.datasets[0].data = data.chart.trips;
+      chartTrips.update();
+    }
+  }
+
+  async function selectPeriod(period, from, to) {
+    document.querySelectorAll('.period-btn').forEach(b => {
+      b.classList.remove('btn-primary');
+      b.classList.add('btn-outline-secondary');
     });
-    new Chart(document.getElementById('chartTrips'), {
-      type: 'bar',
-      data: { labels: d.labels, datasets: [{ label: 'Поїздки', data: d.trips,
-        backgroundColor: '#4ade8050', borderColor: '#4ade80', borderWidth: 1, borderRadius: 3 }] },
-      options: opts('#4ade80'),
+    const activeBtn = period === 'custom'
+      ? document.getElementById('btn-custom-toggle')
+      : document.querySelector(`.period-btn[data-period="${period}"]`);
+    if (activeBtn) { activeBtn.classList.add('btn-primary'); activeBtn.classList.remove('btn-outline-secondary'); }
+
+    const statusEl = document.getElementById('period-status');
+    statusEl.style.opacity = '0.5';
+    try {
+      const params = new URLSearchParams({ period });
+      if (period === 'custom' && from && to) { params.set('from', from); params.set('to', to); }
+      const res = await fetch('/admin/api/dashboard/stats?' + params.toString());
+      const data = await res.json();
+      renderStats(data);
+    } catch (e) {
+      console.error('dashboard stats fetch failed', e);
+    } finally {
+      statusEl.style.opacity = '1';
+    }
+  }
+
+  document.querySelectorAll('.period-btn[data-period]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('custom-range').style.display = 'none';
+      selectPeriod(btn.dataset.period);
     });
-  })
-  .catch(() => {});
+  });
+
+  const customRange = document.getElementById('custom-range');
+  document.getElementById('btn-custom-toggle').addEventListener('click', () => {
+    customRange.style.display = customRange.style.display === 'none' ? 'flex' : 'none';
+  });
+  document.getElementById('btn-custom-apply').addEventListener('click', () => {
+    const from = document.getElementById('custom-from').value;
+    const to = document.getElementById('custom-to').value;
+    if (from && to) selectPeriod('custom', from, to);
+  });
+})();
 </script>
 {% endblock %}
