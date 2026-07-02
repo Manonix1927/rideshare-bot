@@ -1,5 +1,5 @@
 """
-Web admin panel routes for the RideShare Telegram bot.
+Web admin panel routes for the Car Pool Best Telegram bot.
 Mount via setup_admin(app) in main.py.
 Auth: ADMIN_TOKEN env var (cookie-based session).
 """
@@ -206,7 +206,7 @@ async def _compute_stats(s, utc_from: datetime | None, utc_to: datetime | None) 
     match_closed    = await cnt(Match, *match_conds, Match.status == "CLOSED")
 
     funnel = [
-        ("Поїздок створено", trips_total,      100),
+        ("Поїздок створено", trips_total,      100 if trips_total else 0),
         ("Співпадінь",       trips_matched,    _pct(trips_matched, trips_total)),
         ("Підтверджено",     matches_dealt,    _pct(matches_dealt, trips_total)),
         ("Виїзд відбувся",   matches_departed, _pct(matches_departed, trips_total)),
