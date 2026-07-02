@@ -179,43 +179,46 @@
 
 <!-- Cancellation / rejection reasons -->
 <div class="row g-3 mt-1">
-  <div class="col-12 col-xl-4">
+  <div class="col-12 col-xl-8">
     <div class="card h-100">
-      <div class="card-header">🚗 Скасування водіями</div>
-      <div class="table-responsive">
-        <table class="table mb-0">
-          <thead><tr><th>Причина</th><th style="text-align:right;width:60px">К-сть</th></tr></thead>
-          <tbody id="tbody-driver-reasons">
-            {% for reason, count in driver_reasons %}
-            <tr><td>{{ reason or '—' }}</td><td style="text-align:right;color:#6c8ef7;font-weight:600">{{ count }}</td></tr>
-            {% else %}
-            <tr><td colspan="2" style="padding:20px;text-align:center;color:var(--muted)">Немає даних</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="card-header">Причини скасувань підтверджених поїздок</div>
+      <div class="row g-0">
+        <div class="col-12 col-md-6" style="border-right:1px solid var(--sb-border)">
+          <div style="padding:10px 16px;font-size:12px;color:#6c8ef7;font-weight:600;border-bottom:1px solid var(--sb-border)">🚗 Водії</div>
+          <div class="table-responsive">
+            <table class="table mb-0">
+              <thead><tr><th>Причина</th><th style="text-align:right;width:60px">К-сть</th></tr></thead>
+              <tbody id="tbody-driver-reasons">
+                {% for reason, count in driver_reasons %}
+                <tr><td>{{ reason or '—' }}</td><td style="text-align:right;color:#6c8ef7;font-weight:600">{{ count }}</td></tr>
+                {% else %}
+                <tr><td colspan="2" style="padding:20px;text-align:center;color:var(--muted)">Немає даних</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="col-12 col-md-6">
+          <div style="padding:10px 16px;font-size:12px;color:#c084fc;font-weight:600;border-bottom:1px solid var(--sb-border)">🙋 Пасажири</div>
+          <div class="table-responsive">
+            <table class="table mb-0">
+              <thead><tr><th>Причина</th><th style="text-align:right;width:60px">К-сть</th></tr></thead>
+              <tbody id="tbody-passenger-reasons">
+                {% for reason, count in passenger_reasons %}
+                <tr><td>{{ reason or '—' }}</td><td style="text-align:right;color:#c084fc;font-weight:600">{{ count }}</td></tr>
+                {% else %}
+                <tr><td colspan="2" style="padding:20px;text-align:center;color:var(--muted)">Немає даних</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   </div>
   <div class="col-12 col-xl-4">
     <div class="card h-100">
-      <div class="card-header">🙋 Скасування пасажирами</div>
-      <div class="table-responsive">
-        <table class="table mb-0">
-          <thead><tr><th>Причина</th><th style="text-align:right;width:60px">К-сть</th></tr></thead>
-          <tbody id="tbody-passenger-reasons">
-            {% for reason, count in passenger_reasons %}
-            <tr><td>{{ reason or '—' }}</td><td style="text-align:right;color:#c084fc;font-weight:600">{{ count }}</td></tr>
-            {% else %}
-            <tr><td colspan="2" style="padding:20px;text-align:center;color:var(--muted)">Немає даних</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-  <div class="col-12 col-xl-4">
-    <div class="card h-100">
-      <div class="card-header">❌ Причини відхилень</div>
+      <div class="card-header">Причини відміни не підтверджених поїздок</div>
       <div class="table-responsive">
         <table class="table mb-0">
           <thead><tr><th>Причина</th><th style="text-align:right;width:60px">К-сть</th></tr></thead>
