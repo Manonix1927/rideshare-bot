@@ -34,6 +34,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "btn_driver":           "🚗 Я водій",
     "btn_passenger":        "🙋 Я пасажир",
     "btn_search":           "🔍 Поїздки поруч",
+    "btn_all_trips":        "🗺 Всі поїздки",
     "btn_mytrips":          "📋 Мої поїздки",
     "btn_rating":           "⭐ Мій рейтинг",
     "btn_support":          "🛟 Підтримка",
@@ -704,40 +705,6 @@ async def admin_workflow(request: web.Request) -> web.Response:
     return aiohttp_jinja2.render_template("workflow.html", request, {"active": "workflow"})
 
 
-# ── Settings ──────────────────────────────────────────────────────────────────
-
-@_require_auth
-async def admin_settings(request: web.Request) -> web.Response:
-    async with AsyncSessionLocal() as s:
-        rows = (await s.execute(select(BotSetting))).scalars().all()
-    db_map = {r.key: r.value for r in rows}
-    settings = [{
-        "key": k,
-        "value": db_map.get(k, v),
-        "default": v,
-    } for k, v in DEFAULT_SETTINGS.items()]
-    return aiohttp_jinja2.render_template("settings.html", request, {
-        "active": "settings", "settings": settings,
-    })
-
-
-@_require_auth
-async def admin_settings_save(request: web.Request) -> web.Response:
-    data = await request.post()
-    async with AsyncSessionLocal() as s:
-        for key, default in DEFAULT_SETTINGS.items():
-            value = data.get(key, "").strip()
-            if not value:
-                value = default
-            row = await s.get(BotSetting, key)
-            if row:
-                row.value = value
-            else:
-                s.add(BotSetting(key=key, value=value))
-        await s.commit()
-    raise web.HTTPFound("/admin/settings")
-
-
 # ── JSON API ──────────────────────────────────────────────────────────────────
 
 async def api_settings_get(request: web.Request) -> web.Response:
@@ -1219,8 +1186,6 @@ def setup_admin(app: web.Application) -> None:
     app.router.add_post("/admin/faq/{faq_id}/edit",   admin_faq_edit)
     app.router.add_post("/admin/faq/{faq_id}/delete", admin_faq_delete)
     app.router.add_get("/admin/workflow",  admin_workflow)
-    app.router.add_get("/admin/settings",  admin_settings)
-    app.router.add_post("/admin/settings", admin_settings_save)
 
     # Broadcast
     app.router.add_get ("/admin/broadcast",          admin_broadcast_get)

@@ -11,10 +11,11 @@
 .wf-btn:hover { background:#6c8ef720; border-color:#6c8ef760; color:#6c8ef7; }
 .wf-btn.active { border-color:#6c8ef7; background:#6c8ef720; color:#6c8ef7; }
 .wf-start { background:#1e2d4a; border:1.5px solid #3b5bdb; width:100px; padding:10px 12px; }
-.wf-state { background:#1e2a1e; border:1.5px solid #2d6a2d; width:160px; padding:10px 12px; }
-.wf-action { background:#2a1e2a; border:1.5px solid #6a2d6a; width:160px; padding:10px 12px; }
-.wf-confirm { background:#2a2a1a; border:1.5px solid #7a6a1a; width:155px; padding:10px 12px; }
-.wf-done { background:#1e2a1e; border:1.5px solid #2d6a4a; width:130px; padding:10px 12px; }
+.wf-state { background:#1e2a1e; border:1.5px solid #2d6a2d; width:170px; padding:10px 12px; }
+.wf-action { background:#2a1e2a; border:1.5px solid #6a2d6a; width:175px; padding:10px 12px; }
+.wf-confirm { background:#2a2a1a; border:1.5px solid #7a6a1a; width:165px; padding:10px 12px; }
+.wf-done { background:#1e2a1e; border:1.5px solid #2d6a4a; width:150px; padding:10px 12px; }
+.wf-info { background:#1a1a22; border:1.5px dashed #4b5563; width:175px; padding:10px 12px; }
 .ep-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; margin-bottom:4px; }
 .ep-input { width:100%; background:#13151f; border:1px solid #252836; border-radius:6px; padding:7px 9px; color:#e8eaf0; font-size:12px; font-family:inherit; resize:vertical; transition:border-color .15s; }
 .ep-input:focus { outline:none; border-color:#6c8ef7; }
@@ -31,23 +32,21 @@
 <div class="d-flex gap-3" style="align-items:flex-start">
   <!-- Canvas -->
   <div style="flex:1;position:relative;background:#13151f;border-radius:10px;border:1px solid #252836;overflow:auto">
-    <svg id="arrows" style="position:absolute;top:0;left:0;pointer-events:none;min-width:1460px;min-height:700px;width:100%;height:100%">
+    <svg id="arrows" style="position:absolute;top:0;left:0;pointer-events:none;min-width:1900px;min-height:1050px;width:100%;height:100%">
       <defs>
         <marker id="arr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-          <path d="M0,0 L0,7 L7,3.5 z" fill="#3b5bdb60"/>
-        </marker>
-        <marker id="arr2" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-          <path d="M0,0 L0,7 L7,3.5 z" fill="#6a2d6a60"/>
+          <path d="M0,0 L0,7 L7,3.5 z" fill="#8b93a760"/>
         </marker>
       </defs>
     </svg>
-    <div id="canvas" style="position:relative;min-width:1460px;min-height:700px;background-image:radial-gradient(circle,#252836 1px,transparent 1px);background-size:24px 24px">
+    <div id="canvas" style="position:relative;min-width:1900px;min-height:1050px;background-image:radial-gradient(circle,#252836 1px,transparent 1px);background-size:24px 24px">
       <!-- Legend -->
-      <div style="position:absolute;bottom:10px;left:10px;background:#1a1d2790;border:1px solid #252836;border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:5px">
-        <div style="font-size:10px;color:#9ca3af;display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:3px;background:#1e2a1e;border:1px solid #2d6a2d"></div>Стан бота</div>
-        <div style="font-size:10px;color:#9ca3af;display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:3px;background:#2a1e2a;border:1px solid #6a2d6a"></div>Дія після матчу</div>
-        <div style="font-size:10px;color:#9ca3af;display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:3px;background:#2a2a1a;border:1px solid #7a6a1a"></div>Підтвердження / нагадування</div>
-        <div style="font-size:10px;color:#6c8ef7;border:1px dashed #6c8ef740;border-radius:3px;padding:1px 6px;width:fit-content">кнопка</div>
+      <div style="position:absolute;bottom:10px;left:10px;background:#1a1d2790;border:1px solid #252836;border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:5px;z-index:5">
+        <div style="font-size:10px;color:#9ca3af;display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:3px;background:#1e2a1e;border:1px solid #2d6a2d"></div>Стан бота (меню / створення заявки)</div>
+        <div style="font-size:10px;color:#9ca3af;display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:3px;background:#2a1e2a;border:1px solid #6a2d6a"></div>Дія після підтвердження</div>
+        <div style="font-size:10px;color:#9ca3af;display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:3px;background:#2a2a1a;border:1px solid #7a6a1a"></div>Очікує підтвердження / за часом</div>
+        <div style="font-size:10px;color:#9ca3af;display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:3px;background:#1a1a22;border:1.5px dashed #4b5563"></div>Автоматична подія / інфо (не редагується)</div>
+        <div style="font-size:10px;color:#6c8ef7;border:1px dashed #6c8ef740;border-radius:3px;padding:1px 6px;width:fit-content">кнопка / текст — клік редагує</div>
       </div>
     </div>
   </div>
@@ -76,65 +75,94 @@ let settings = {};
 let editingKey = null;
 
 // ── Node definitions ───────────────────────────────────────────────────────
+// Reflects the current bot flow: manual/geo/map address entry, Google-first
+// geocoding, half-hour time slots for "today", multi-passenger BOARDING,
+// direct offers via "Всі поїздки", periodic rematch, IN_PROGRESS on departure,
+// pending-match timeout auto-cancel, and confirmed-trip cancellation.
 const NODES = [
   {
-    id: 'start', type: 'wf-start', x: 10, y: 290,
+    id: 'start', type: 'wf-start', x: 10, y: 460,
     title: 'ВХІД', label: '🤖 /start',
     buttons: [], msgs: [],
   },
   {
-    id: 'menu', type: 'wf-state', x: 155, y: 195,
+    id: 'menu', type: 'wf-state', x: 190, y: 350,
     title: 'ГОЛОВНЕ МЕНЮ', label: 'Привітання',
     msgs: [{ key:'msg_welcome', label:'Текст привітання' }],
     buttons: [
-      { key:'btn_driver',    label:'🚗 Водій' },
-      { key:'btn_passenger', label:'🙋 Пасажир' },
-      { key:'btn_search',    label:'🔍 Пошук' },
+      { key:'btn_driver',    label:'🚗 Я водій' },
+      { key:'btn_passenger', label:'🙋 Я пасажир' },
+      { key:'btn_search',    label:'🔍 Поїздки поруч' },
+      { key:'btn_all_trips', label:'🗺 Всі поїздки' },
       { key:'btn_mytrips',   label:'📋 Мої поїздки' },
     ],
   },
   {
-    id: 'driver_flow', type: 'wf-state', x: 375, y: 55,
+    id: 'driver_flow', type: 'wf-state', x: 460, y: 40,
     title: 'ФЛОУ ВОДІЯ', label: '🚗 Створення поїздки',
     msgs: [], buttons: [],
-    info: 'Адреса → Дата/час → Ціна → Місця',
+    info: 'Адреса (текст/гео/карта) → дата (сьогодні = півгодинні слоти) → ціна → місця. Статус: ACTIVE',
   },
   {
-    id: 'pax_flow', type: 'wf-state', x: 375, y: 330,
+    id: 'pax_flow', type: 'wf-state', x: 460, y: 340,
     title: 'ФЛОУ ПАСАЖИРА', label: '🙋 Заявка пасажира',
     msgs: [], buttons: [],
-    info: 'Адреса → Дата/час → Бюджет',
+    info: 'Адреса → дата/час → бюджет → к-сть пасажирів. Статус: ACTIVE',
   },
   {
-    id: 'match', type: 'wf-confirm', x: 580, y: 185,
+    id: 'all_trips', type: 'wf-state', x: 460, y: 640,
+    title: '"ВСІ ПОЇЗДКИ" / ПОРУЧ', label: '👉 Пряма пропозиція',
+    msgs: [], buttons: [],
+    info: 'Обрав чужу заявку → "Запропонувати поїздку" (для водія: скільки місць) → бронь одразу, друга сторона підтверджує в 1 клік',
+  },
+  {
+    id: 'match', type: 'wf-confirm', x: 750, y: 350,
     title: 'МАТЧ ЗНАЙДЕНО', label: '🎉 Підходящий варіант',
     msgs: [],
     buttons: [
       { key:'btn_confirm', label:'✅ Підтвердити' },
       { key:'btn_reject',  label:'❌ Відмовитися' },
     ],
+    info: 'Автопідбір при створенні + повторний підбір кожні 3 хв. Обидві сторони мають підтвердити',
   },
   {
-    id: 'confirmed_d', type: 'wf-action', x: 795, y: 30,
+    id: 'timeout', type: 'wf-info', x: 750, y: 650,
+    title: 'АВТО', label: '⏳ Таймаут пропозиції',
+    msgs: [], buttons: [],
+    info: 'Ніхто не підтвердив вчасно (5-30 хв залежно від часу до поїздки) → REJECTED, заявки знову ACTIVE/BOARDING',
+  },
+  {
+    id: 'confirmed_d', type: 'wf-action', x: 1030, y: 30,
     title: 'ПІДТВЕРДЖЕНО — ВОДІЙ', label: '🚗 Повідомлення водію',
     msgs: [{ key:'msg_confirmed_driver', label:'Текст водію' }],
     buttons: [
       { key:'btn_departed',      label:'🚀 Виїхав' },
-      { key:'btn_map_driver',    label:'🗺 Карта (водій)' },
       { key:'btn_cancel_driver', label:'❌ Відмінити' },
     ],
+    info: 'Мапи ще немає — з\'явиться пізніше (Виїхав / нагадування)',
   },
   {
-    id: 'confirmed_p', type: 'wf-action', x: 795, y: 310,
+    id: 'confirmed_p', type: 'wf-action', x: 1030, y: 320,
     title: 'ПІДТВЕРДЖЕНО — ПАСАЖИР', label: '🙋 Повідомлення пасажиру',
     msgs: [{ key:'msg_confirmed_pax', label:'Текст пасажиру' }],
     buttons: [
-      { key:'btn_map_passenger',    label:'🗺 Карта (пасажир)' },
       { key:'btn_cancel_passenger', label:'❌ Відмінити' },
     ],
   },
   {
-    id: 'departed', type: 'wf-action', x: 1040, y: 80,
+    id: 'boarding', type: 'wf-info', x: 1030, y: 620,
+    title: 'БАГАТО ПАСАЖИРІВ', label: '🟡 Набір пасажирів (BOARDING)',
+    msgs: [], buttons: [],
+    info: 'Якщо у водія лишились вільні місця — заявка не закривається, лишається видимою для нових пасажирів',
+  },
+  {
+    id: 'cancel', type: 'wf-action', x: 1030, y: 850,
+    title: 'СКАСУВАННЯ', label: '❌ Скасування підтвердженої поїздки',
+    msgs: [], buttons: [],
+    info: 'Хто скасував → його заявка CLOSED. Інша сторона → ACTIVE/BOARDING знову, отримує сповіщення з причиною',
+  },
+  {
+    id: 'departed', type: 'wf-action', x: 1330, y: 30,
     title: 'ВОДІЙ ВИЇХАВ', label: '🚀 Пасажир сповіщений',
     msgs: [{ key:'msg_departed_pax', label:'Текст пасажиру' }],
     buttons: [
@@ -142,35 +170,42 @@ const NODES = [
       { key:'btn_map_pax',    label:'🗺 Карта (пасажир)' },
       { key:'btn_cancel_pax', label:'❌ Відмінити' },
     ],
+    info: 'Заявка водія → IN_PROGRESS (зникає з пошуку й пропозицій)',
   },
   {
-    id: 'reminder', type: 'wf-confirm', x: 1040, y: 420,
+    id: 'reminder', type: 'wf-confirm', x: 1330, y: 320,
     title: '⏰ НАГАДУВАННЯ (10 ХВ)', label: 'За 10 хв до поїздки',
     msgs: [{ key:'msg_reminder', label:'Текст нагадування' }],
     buttons: [{ key:'btn_map_rem', label:'🗺 Карта' }],
   },
   {
-    id: 'done', type: 'wf-done', x: 1255, y: 240,
+    id: 'done', type: 'wf-done', x: 1620, y: 180,
     title: 'ФІНАЛ', label: '🏁 Поїздка завершена',
     msgs: [],
     buttons: [],
-    info: '⭐ Оцінювання попутника',
+    info: 'Авто-закриття після часу виїзду (CLOSED) → через 5 хв запит на оцінку 1-5 ⭐ обом сторонам',
   },
 ];
 
-// ── Arrow definitions [fromId, toId, fromAnchor, toAnchor, color] ──────────
+// ── Arrow definitions [fromId, toId, fromAnchor, toAnchor, color, dashed?] ─
 const ARROWS = [
   ['start',       'menu',        'r', 'l', '#3b5bdb60'],
   ['menu',        'driver_flow', 'r', 'l', '#3b5bdb60'],
   ['menu',        'pax_flow',    'r', 'l', '#3b5bdb60'],
+  ['menu',        'all_trips',   'r', 'l', '#3b5bdb60'],
   ['driver_flow', 'match',       'r', 'l', '#3b5bdb60'],
   ['pax_flow',    'match',       'r', 'l', '#3b5bdb60'],
+  ['all_trips',   'match',       'r', 'l', '#3b5bdb60'],
+  ['match',       'timeout',     'b', 't', '#7a6a1a60', true],
   ['match',       'confirmed_d', 'r', 'l', '#2d6a2d80'],
   ['match',       'confirmed_p', 'r', 'l', '#2d6a2d80'],
+  ['confirmed_d', 'boarding',    'b', 't', '#7a6a1a60', true],
+  ['confirmed_d', 'cancel',      'r', 't', '#7a6a1a60', true],
+  ['confirmed_p', 'cancel',      'b', 'l', '#7a6a1a60', true],
   ['confirmed_d', 'departed',    'r', 'l', '#6a2d6a80'],
-  ['confirmed_p', 'departed',    'r', 'l', '#6a2d6a80'],
+  ['confirmed_d', 'reminder',    'r', 'l', '#7a6a1a60', true],
   ['departed',    'done',        'r', 'l', '#6a2d6a80'],
-  ['confirmed_d', 'reminder',    'r', 'l', '#7a6a1a60'],
+  ['reminder',    'done',        'r', 'l', '#7a6a1a60', true],
 ];
 
 // Node element lookup (built after render)
@@ -192,7 +227,7 @@ function getNodeCenter(id, anchor) {
 function drawArrows() {
   const svg = document.getElementById('arrows');
   let paths = '';
-  for (const [from, to, fromA, toA, color] of ARROWS) {
+  for (const [from, to, fromA, toA, color, dashed] of ARROWS) {
     const [x1, y1] = getNodeCenter(from, fromA);
     const [x2, y2] = getNodeCenter(to, toA);
     let d;
@@ -204,10 +239,8 @@ function drawArrows() {
       const my = y1 + dy * 0.5;
       d = `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`;
     }
-    const markerUrl = from === 'reminder' ? 'url(#arr2)' : 'url(#arr)';
-    const stroke = color;
-    const dash = from === 'reminder' ? 'stroke-dasharray="5,3"' : '';
-    paths += `<path d="${d}" stroke="${stroke}" stroke-width="1.5" fill="none" marker-end="${markerUrl}" ${dash}/>`;
+    const dash = dashed ? 'stroke-dasharray="5,3"' : '';
+    paths += `<path d="${d}" stroke="${color}" stroke-width="1.5" fill="none" marker-end="url(#arr)" ${dash}/>`;
   }
   svg.innerHTML = svg.querySelector('defs').outerHTML + paths;
 }
