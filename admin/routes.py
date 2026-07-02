@@ -526,6 +526,26 @@ async def admin_user_message(request: web.Request) -> web.Response:
 
 
 @_require_auth
+async def admin_user_rating(request: web.Request) -> web.Response:
+    uid = int(request.match_info["user_id"])
+    data = await request.post()
+    raw = (data.get("rating") or "").strip().replace(",", ".")
+    async with AsyncSessionLocal() as s:
+        user = await s.get(User, uid)
+        if user:
+            if not raw:
+                user.rating = None
+            else:
+                try:
+                    value = max(1.0, min(5.0, float(raw)))
+                    user.rating = round(value, 2)
+                except ValueError:
+                    pass
+            await s.commit()
+    raise web.HTTPFound(f"/admin/users/{uid}")
+
+
+@_require_auth
 async def admin_block_user(request: web.Request) -> web.Response:
     uid = int(request.match_info["user_id"])
     async with AsyncSessionLocal() as s:
@@ -1173,6 +1193,7 @@ def setup_admin(app: web.Application) -> None:
     app.router.add_get("/admin/users",   admin_users)
     app.router.add_get("/admin/users/{user_id:\\d+}",         admin_user_detail)
     app.router.add_post("/admin/users/{user_id}/message",     admin_user_message)
+    app.router.add_post("/admin/users/{user_id}/rating",      admin_user_rating)
     app.router.add_post("/admin/users/{user_id}/block",   admin_block_user)
     app.router.add_post("/admin/users/{user_id}/unblock", admin_unblock_user)
     app.router.add_get("/admin/matches", admin_matches)

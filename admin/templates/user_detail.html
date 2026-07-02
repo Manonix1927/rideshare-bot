@@ -17,7 +17,16 @@
         <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">ID</span><span>{{ u.id }}</span></div>
         <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Username</span><span>{% if u.username %}@{{ u.username }}{% else %}—{% endif %}</span></div>
         <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Місто</span><span>{{ u.home_city or '—' }}</span></div>
-        <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Рейтинг</span><span style="color:#c084fc;font-weight:600">⭐ {{ '%.2f'|format(u.rating) if u.rating is not none else '—' }}</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#9ca3af">Рейтинг</span>
+          <form method="post" action="/admin/users/{{ u.id }}/rating" style="display:flex;gap:6px;align-items:center">
+            <span style="color:#c084fc">⭐</span>
+            <input type="number" name="rating" step="0.1" min="1" max="5"
+                   value="{{ '%.2f'|format(u.rating) if u.rating is not none else '' }}"
+                   placeholder="—" class="form-control form-control-sm" style="width:70px;text-align:right">
+            <button type="submit" class="btn btn-sm btn-outline-secondary" title="Зберегти">💾</button>
+          </form>
+        </div>
         <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Поїздок</span><span>{{ u.trips_count or 0 }}</span></div>
         <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Успішних / Зривів</span><span><span style="color:#4ade80">{{ u.successful_trips or 0 }}</span> / <span style="color:#f87171">{{ u.failed_trips or 0 }}</span></span></div>
         <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af">Реєстрація</span><span>{{ u.created_at.strftime('%d.%m.%Y') if u.created_at else '—' }}</span></div>
