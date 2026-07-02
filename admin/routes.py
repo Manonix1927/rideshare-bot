@@ -150,8 +150,8 @@ async def admin_dashboard(request: web.Request) -> web.Response:
 
         funnel = [
             ("Поїздок створено",   trips_total,      100),
-            ("Отримали матч",      trips_matched,    _pct(trips_matched, trips_total)),
-            ("Угоду укладено",     matches_dealt,    _pct(matches_dealt, trips_total)),
+            ("Співпадінь",         trips_matched,    _pct(trips_matched, trips_total)),
+            ("Підтверджено",       matches_dealt,    _pct(matches_dealt, trips_total)),
             ("Виїзд відбувся",     matches_departed, _pct(matches_departed, trips_total)),
             ("Оцінено",            matches_rated,    _pct(matches_rated, trips_total)),
         ]
