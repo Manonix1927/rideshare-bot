@@ -48,3 +48,7 @@ class SearchStates(StatesGroup):
 
 class CancelTripStates(StatesGroup):
     typing_reason = State()
+
+
+class RecurringStates(StatesGroup):
+    entering_time = State()

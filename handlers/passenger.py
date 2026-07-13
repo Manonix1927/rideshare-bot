@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from database.models import Trip, User
-from keyboards.keyboards import geo_or_text_kb, dest_kb, cancel_kb, main_menu_kb, confirm_address_kb, confirm_with_map_kb, addr_not_found_kb, city_picker_kb, date_picker_kb, time_picker_kb, passengers_count_kb
+from keyboards.keyboards import geo_or_text_kb, dest_kb, cancel_kb, main_menu_kb, confirm_address_kb, confirm_with_map_kb, addr_not_found_kb, city_picker_kb, date_picker_kb, time_picker_kb, passengers_count_kb, recur_offer_kb
 from services.geo import geocode_address, geocode_address_multi, reverse_geocode, get_city_from_coords, _detect_city, _intended_locality
 from services.matching import find_matches_for_trip, create_match
 from services.notifications import notify_new_match
@@ -58,6 +58,7 @@ async def passenger_start(message: Message, state: FSMContext, session: AsyncSes
         select(func.count()).select_from(Trip).where(
             Trip.user_id == message.from_user.id,
             Trip.status.in_(["ACTIVE", "MATCHING"]),
+            Trip.recurring_id.is_(None),  # regular trips don't count toward the quota
         )
     )
     if active_count >= MAX_ACTIVE_TRIPS:
@@ -509,6 +510,9 @@ async def passenger_count_cb(callback: CallbackQuery, state: FSMContext, session
         "Чудово 👌 Вашу заявку створено. Ми вже шукаємо для вас підходящі варіанти і повідомимо, як тільки вони з'являться.",
         reply_markup=main_menu_kb(),
     )
+    await callback.message.answer(
+        "🔁 Їздите цим маршрутом регулярно?", reply_markup=recur_offer_kb(trip.id),
+    )
     await callback.answer()
 
     matches = await find_matches_for_trip(trip, session)
@@ -567,6 +571,9 @@ async def passenger_count(message: Message, state: FSMContext, session: AsyncSes
     await message.answer(
         "Чудово 👌 Вашу заявку створено. Ми вже шукаємо для вас підходящі варіанти і повідомимо, як тільки вони з'являться.",
         reply_markup=main_menu_kb(),
+    )
+    await message.answer(
+        "🔁 Їздите цим маршрутом регулярно?", reply_markup=recur_offer_kb(trip.id),
     )
 
     # Search for matching drivers

@@ -30,6 +30,7 @@ async def _run_migrations() -> None:
         ("matches", "cancel_reason",              "VARCHAR"),
         ("matches", "pending_reminder_1_sent",    "BOOLEAN DEFAULT FALSE"),
         ("matches", "pending_reminder_2_sent",    "BOOLEAN DEFAULT FALSE"),
+        ("trips",   "recurring_id",               "INTEGER"),
     ]
     for table, col, col_type in new_cols:
         sql = (

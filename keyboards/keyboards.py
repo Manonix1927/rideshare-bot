@@ -51,6 +51,52 @@ def time_picker_kb(date_iso: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def recur_offer_kb(trip_id: int) -> InlineKeyboardMarkup:
+    """Shown right after trip creation / trip completion — offer to make it recurring."""
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🔁 Зробити поїздку регулярною", callback_data=f"rc:offer:{trip_id}"))
+    builder.row(InlineKeyboardButton(text="Не зараз", callback_data=f"rc:dismiss:{trip_id}"))
+    return builder.as_markup()
+
+
+def recur_pattern_kb(trip_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="📅 Кожен день", callback_data=f"rc:pat:{trip_id}:daily"))
+    builder.row(InlineKeyboardButton(text="💼 Пн–Пт", callback_data=f"rc:pat:{trip_id}:weekdays"))
+    builder.row(InlineKeyboardButton(text="🗓 Обрати дні", callback_data=f"rc:pat:{trip_id}:custom"))
+    return builder.as_markup()
+
+
+def recur_days_kb(trip_id: int, mask: str) -> InlineKeyboardMarkup:
+    """Toggle-one-at-a-time day picker: shows only days not yet chosen, plus a
+    'Завершити вибір' button once at least one day is selected."""
+    builder = InlineKeyboardBuilder()
+    for i, label in enumerate(_DAYS_UA):
+        if mask[i] == "0":
+            new_mask = mask[:i] + "1" + mask[i + 1:]
+            builder.button(text=label, callback_data=f"rc:day:{trip_id}:{new_mask}")
+    builder.adjust(4)
+    if "1" in mask:
+        builder.row(InlineKeyboardButton(text="✅ Завершити вибір", callback_data=f"rc:done:{trip_id}:{mask}"))
+    return builder.as_markup()
+
+
+def recur_time_kb(trip_id: int, mask: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for m in range(6 * 60, 24 * 60, 30):
+        h, mm = divmod(m, 60)
+        builder.button(text=f"{h:02d}:{mm:02d}", callback_data=f"rc:time:{trip_id}:{mask}:{h:02d}:{mm:02d}")
+    builder.adjust(4)
+    builder.row(InlineKeyboardButton(text="✏️ Ввести вручну", callback_data=f"rc:time_manual:{trip_id}:{mask}"))
+    return builder.as_markup()
+
+
+def recurring_trip_kb(rt_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="❌ Скасувати регулярність", callback_data=f"rc:cancel:{rt_id}"))
+    return builder.as_markup()
+
+
 def main_menu_kb() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.row(
@@ -262,11 +308,12 @@ def rating_kb(match_id: int, to_user_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def my_trips_menu_kb(active: int = 0, confirmed: int = 0, closed: int = 0) -> InlineKeyboardMarkup:
+def my_trips_menu_kb(active: int = 0, confirmed: int = 0, closed: int = 0, recurring: int = 0) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text=f"🟢 Активні — {active}", callback_data="mytrips:active"))
     builder.row(InlineKeyboardButton(text=f"✅ Підтверджені — {confirmed}", callback_data="mytrips:confirmed"))
     builder.row(InlineKeyboardButton(text=f"🏁 Завершені — {closed}", callback_data="mytrips:closed"))
+    builder.row(InlineKeyboardButton(text=f"🔁 Регулярні — {recurring}", callback_data="mytrips:recurring"))
     return builder.as_markup()
 
 

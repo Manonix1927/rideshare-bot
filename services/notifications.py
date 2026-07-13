@@ -14,6 +14,7 @@ from database.models import Trip, Match, User
 from config import WEBAPP_URL
 from services import bot_settings as _s
 from services.timezone import now as _now
+from services.recurring import spawn_next
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ async def auto_close_expired_trips(bot) -> None:
         trips = result.scalars().all()
         for trip in trips:
             trip.status = "CLOSED"
+            await spawn_next(session, trip)
         await session.commit()
 
 
@@ -66,7 +68,7 @@ async def send_rating_prompts(bot) -> None:
     Uses a simple threshold (departure <= now - 5min) instead of a narrow window so
     matches are never left in CONFIRMED state forever if the bot was restarted.
     """
-    from keyboards.keyboards import meeting_happened_kb
+    from keyboards.keyboards import meeting_happened_kb, recur_offer_kb
 
     now = _now()
     threshold = now - timedelta(minutes=5)
@@ -91,6 +93,8 @@ async def send_rating_prompts(bot) -> None:
             match.status = "CLOSED"
             driver_trip.status = "CLOSED"
             match.passenger_trip.status = "CLOSED"
+            await spawn_next(session, driver_trip)
+            await spawn_next(session, match.passenger_trip)
 
             driver_user    = driver_trip.user
             passenger_user = match.passenger_trip.user
@@ -107,6 +111,25 @@ async def send_rating_prompts(bot) -> None:
                 )
             except Exception:
                 pass
+
+            # Offer to make each side's trip recurring — only if it isn't already
+            # (a trip already linked to a template shouldn't be asked again).
+            if not driver_trip.recurring_id:
+                try:
+                    await bot.send_message(
+                        driver_user.id, "🔁 Їздите цим маршрутом регулярно?",
+                        reply_markup=recur_offer_kb(driver_trip.id),
+                    )
+                except Exception:
+                    pass
+            if not match.passenger_trip.recurring_id:
+                try:
+                    await bot.send_message(
+                        passenger_user.id, "🔁 Їздите цим маршрутом регулярно?",
+                        reply_markup=recur_offer_kb(match.passenger_trip.id),
+                    )
+                except Exception:
+                    pass
 
         await session.commit()
 

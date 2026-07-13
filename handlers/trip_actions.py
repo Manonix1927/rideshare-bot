@@ -262,6 +262,7 @@ async def cancel_custom_reason(message: Message, session: AsyncSession, bot: Bot
 
 async def _do_cancel(match: Match, role: str, reason_label: str, session: AsyncSession, bot: Bot, reply_target) -> None:
     from services.matching import _occupied_seats
+    from services.recurring import spawn_next
 
     match.status = "CANCELLED"
     match.cancelled_by = role
@@ -271,6 +272,7 @@ async def _do_cancel(match: Match, role: str, reason_label: str, session: AsyncS
     if role == "driver":
         match.driver_trip.status = "CLOSED"
         match.passenger_trip.status = "ACTIVE"
+        await spawn_next(session, match.driver_trip)
         notify_id = match.passenger_trip.user_id
         notify_text = (
             f"😔 <b>Водій скасував поїздку</b>\n"
@@ -279,6 +281,7 @@ async def _do_cancel(match: Match, role: str, reason_label: str, session: AsyncS
         )
     else:
         match.passenger_trip.status = "CLOSED"
+        await spawn_next(session, match.passenger_trip)
         # Driver may still have other confirmed passengers → keep boarding.
         occ = await _occupied_seats(match.driver_trip.id, session)
         match.driver_trip.status = "BOARDING" if occ > 0 else "ACTIVE"

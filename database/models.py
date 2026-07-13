@@ -44,6 +44,7 @@ class Trip(Base):
     seats = Column(Integer, nullable=True) # driver → available seats; passenger → pax count
     status = Column(String, default="ACTIVE")  # ACTIVE | MATCHING | CONFIRMED | CLOSED
     created_at = Column(DateTime, default=datetime.utcnow)
+    recurring_id = Column(Integer, ForeignKey("recurring_trips.id"), nullable=True)
 
     user = relationship("User", back_populates="trips")
     driver_matches = relationship(
@@ -140,3 +141,28 @@ class PassengerLocation(Base):
     lat = Column(Float, nullable=False)
     lon = Column(Float, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class RecurringTrip(Base):
+    """A template that keeps re-creating a one-off Trip on the same schedule.
+    Trip.recurring_id links a concrete Trip instance back to its template."""
+    __tablename__ = "recurring_trips"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
+    role = Column(String, nullable=False)  # "driver" | "passenger"
+    from_address = Column(String, nullable=False)
+    from_lat = Column(Float, nullable=False)
+    from_lon = Column(Float, nullable=False)
+    to_address = Column(String, nullable=False)
+    to_lat = Column(Float, nullable=False)
+    to_lon = Column(Float, nullable=False)
+    price = Column(Float, nullable=True)
+    seats = Column(Integer, nullable=True)
+    departure_hour = Column(Integer, nullable=False)
+    departure_minute = Column(Integer, nullable=False)
+    days_mask = Column(String, nullable=False)  # 7 chars '0'/'1', index 0=Mon ... 6=Sun
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")

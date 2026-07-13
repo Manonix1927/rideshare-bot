@@ -4,11 +4,12 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
-from database.models import Trip, Match, User
+from database.models import Trip, Match, User, RecurringTrip
 from services.matching import get_remaining_seats
+from services.recurring import mask_label
 from keyboards.keyboards import (
     my_trips_menu_kb,
     active_trip_actions_kb,
@@ -16,6 +17,7 @@ from keyboards.keyboards import (
     confirm_delete_kb,
     confirmed_trip_contact_kb,
     cancel_confirmed_trip_kb,
+    recurring_trip_kb,
     geo_or_text_kb,
     dest_kb,
     cancel_kb,
@@ -86,11 +88,17 @@ async def my_trips(message: Message, session: AsyncSession) -> None:
     active    = sum(1 for t in trips if t.status in ("ACTIVE", "MATCHING", "BOARDING"))
     confirmed = sum(1 for t in trips if t.status == "CONFIRMED")
     closed    = sum(1 for t in trips if t.status in ("CLOSED", "CANCELLED"))
+    recurring = await session.scalar(
+        select(func.count()).select_from(RecurringTrip).where(
+            RecurringTrip.user_id == message.from_user.id,
+            RecurringTrip.is_active == True,
+        )
+    )
 
     await message.answer(
         "📋 <b>Ваші поїздки</b>\n\nОберіть категорію:",
         parse_mode="HTML",
-        reply_markup=my_trips_menu_kb(active=active, confirmed=confirmed, closed=closed),
+        reply_markup=my_trips_menu_kb(active=active, confirmed=confirmed, closed=closed, recurring=recurring or 0),
     )
 
 
@@ -236,6 +244,32 @@ async def my_closed_trips(callback: CallbackQuery, session: AsyncSession) -> Non
     await callback.answer()
 
 
+@router.callback_query(F.data == "mytrips:recurring")
+async def my_recurring_trips(callback: CallbackQuery, session: AsyncSession) -> None:
+    result = await session.execute(
+        select(RecurringTrip).where(
+            RecurringTrip.user_id == callback.from_user.id,
+            RecurringTrip.is_active == True,
+        ).order_by(RecurringTrip.created_at.desc())
+    )
+    items = result.scalars().all()
+
+    if not items:
+        await callback.answer("Немає регулярних поїздок.", show_alert=True)
+        return
+
+    await callback.message.answer("🔁 <b>Регулярні поїздки:</b>", parse_mode="HTML")
+    for rt in items:
+        role_emoji = "🚗" if rt.role == "driver" else "🙋"
+        text = (
+            f"{role_emoji} {rt.from_address.split(',')[0]} → {rt.to_address.split(',')[0]}\n"
+            f"🗓 {mask_label(rt.days_mask)}\n"
+            f"🕒 {rt.departure_hour:02d}:{rt.departure_minute:02d}"
+        )
+        await callback.message.answer(text, reply_markup=recurring_trip_kb(rt.id))
+    await callback.answer()
+
+
 # ─── Delete flow ──────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("trip_delete:") & ~F.data.startswith("trip_delete_confirm:") & ~F.data.startswith("trip_delete_cancel:"))
@@ -257,7 +291,10 @@ async def trip_delete_confirm(callback: CallbackQuery, session: AsyncSession) ->
         await callback.answer("Поїздку не знайдено.", show_alert=True)
         return
 
+    from services.recurring import spawn_next
+
     trip.status = "CLOSED"
+    await spawn_next(session, trip)
     await session.commit()
     await callback.message.edit_text("✅ Поїздку закрито.")
     await callback.answer()
@@ -574,14 +611,18 @@ async def cancel_confirmed_reason(callback: CallbackQuery, session: AsyncSession
     match.status = "CANCELLED"
     match.cancelled_by = "driver" if driver_trip.user_id == user_id else "passenger"
     match.cancel_reason = reason_text
+    from services.recurring import spawn_next
+
     if driver_trip.user_id == user_id:
         canceller_role = "Водій"
         driver_trip.status = "CLOSED"
         passenger_trip.status = "ACTIVE"
+        await spawn_next(session, driver_trip)
         partner_id = passenger_trip.user_id
     else:
         canceller_role = "Пасажир"
         passenger_trip.status = "CLOSED"
+        await spawn_next(session, passenger_trip)
         # Driver may still have other confirmed passengers → BOARDING, else ACTIVE
         from services.matching import _occupied_seats
         occ = await _occupied_seats(driver_trip.id, session)

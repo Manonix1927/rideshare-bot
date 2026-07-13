@@ -324,6 +324,7 @@ async def new_trip_from_search(callback: CallbackQuery, state: FSMContext, sessi
         select(_func.count()).select_from(Trip).where(
             Trip.user_id == user_id,
             Trip.status.in_(["ACTIVE", "MATCHING", "BOARDING"]),
+            Trip.recurring_id.is_(None),  # regular trips don't count toward the quota
         )
     )
     if active_count and active_count >= 3:
