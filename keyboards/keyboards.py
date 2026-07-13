@@ -470,10 +470,11 @@ def admin_main_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def admin_user_actions_kb(user_id: int) -> InlineKeyboardMarkup:
+def admin_user_actions_kb(user_id: int, is_blocked: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="🚫 Заблокувати", callback_data=f"admin_block:{user_id}"),
-        InlineKeyboardButton(text="✅ Розблокувати", callback_data=f"admin_unblock:{user_id}"),
-    )
+    if is_blocked:
+        builder.row(InlineKeyboardButton(text="✅ Розблокувати", callback_data=f"admin_unblock:{user_id}"))
+    else:
+        builder.row(InlineKeyboardButton(text="🚫 Заблокувати", callback_data=f"admin_block:{user_id}"))
+    builder.row(InlineKeyboardButton(text="↩️ Назад", callback_data="admin:users"))
     return builder.as_markup()

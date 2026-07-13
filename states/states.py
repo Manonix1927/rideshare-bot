@@ -39,6 +39,7 @@ class AdminStates(StatesGroup):
     editing_faq_question = State()
     editing_faq_answer = State()
     replying_to_ticket = State()
+    finding_user_id = State()
 
 
 class SearchStates(StatesGroup):

@@ -17,6 +17,17 @@ def _is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
+def _user_card_text(u: User) -> str:
+    blocked = "🚫 Заблокований" if u.is_blocked else "✅ Активний"
+    return (
+        f"👤 <b>{u.first_name}</b> (@{u.username or '—'})\n"
+        f"🆔 ID: <code>{u.id}</code>\n"
+        f"⭐ Рейтинг: {f'{u.rating:.1f}' if u.rating is not None else '—'}\n"
+        f"🚗 Поїздок: {u.trips_count} (успішних: {u.successful_trips}, зривів: {u.failed_trips})\n"
+        f"📊 Статус: {blocked}"
+    )
+
+
 @router.message(Command("admin"))
 async def admin_panel(message: Message) -> None:
     if not _is_admin(message.from_user.id):
@@ -81,6 +92,37 @@ async def admin_users(callback: CallbackQuery, session: AsyncSession) -> None:
 
     await callback.message.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
     await callback.answer()
+
+
+@router.callback_query(F.data == "admin:find_user")
+async def admin_find_user_start(callback: CallbackQuery, state: FSMContext) -> None:
+    if not _is_admin(callback.from_user.id):
+        return
+    await state.set_state(AdminStates.finding_user_id)
+    await callback.message.answer("🔍 Введіть ID користувача (Telegram user ID):")
+    await callback.answer()
+
+
+@router.message(AdminStates.finding_user_id, F.text)
+async def admin_find_user_result(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not _is_admin(message.from_user.id):
+        return
+    await state.clear()
+    try:
+        user_id = int(message.text.strip())
+    except ValueError:
+        await message.answer("❌ ID має бути числом. Спробуйте ще раз через «Знайти за ID».")
+        return
+
+    user = await session.get(User, user_id)
+    if not user:
+        await message.answer(f"❌ Користувача з ID {user_id} не знайдено.")
+        return
+
+    await message.answer(
+        _user_card_text(user), parse_mode="HTML",
+        reply_markup=admin_user_actions_kb(user.id, user.is_blocked),
+    )
 
 
 @router.callback_query(F.data == "admin:trips")
@@ -301,10 +343,16 @@ async def admin_block_user(callback: CallbackQuery, session: AsyncSession) -> No
         return
     user_id = int(callback.data.split(":")[1])
     user = await session.get(User, user_id)
-    if user:
-        user.is_blocked = True
-        await session.commit()
-    await callback.answer(f"Користувача {user_id} заблоковано.", show_alert=True)
+    if not user:
+        await callback.answer("Користувача не знайдено.", show_alert=True)
+        return
+    user.is_blocked = True
+    await session.commit()
+    await callback.message.edit_text(
+        _user_card_text(user), parse_mode="HTML",
+        reply_markup=admin_user_actions_kb(user.id, user.is_blocked),
+    )
+    await callback.answer(f"Користувача {user_id} заблоковано.")
 
 
 @router.callback_query(F.data.startswith("admin_unblock:"))
@@ -313,10 +361,16 @@ async def admin_unblock_user(callback: CallbackQuery, session: AsyncSession) -> 
         return
     user_id = int(callback.data.split(":")[1])
     user = await session.get(User, user_id)
-    if user:
-        user.is_blocked = False
-        await session.commit()
-    await callback.answer(f"Користувача {user_id} розблоковано.", show_alert=True)
+    if not user:
+        await callback.answer("Користувача не знайдено.", show_alert=True)
+        return
+    user.is_blocked = False
+    await session.commit()
+    await callback.message.edit_text(
+        _user_card_text(user), parse_mode="HTML",
+        reply_markup=admin_user_actions_kb(user.id, user.is_blocked),
+    )
+    await callback.answer(f"Користувача {user_id} розблоковано.")
 
 
 @router.callback_query(F.data == "admin:back")
