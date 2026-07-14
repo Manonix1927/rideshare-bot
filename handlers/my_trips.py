@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from database.models import Trip, Match, User, RecurringTrip
 from services.matching import get_remaining_seats
 from services.recurring import mask_label
+from services.rich_cards import short_addr
 from keyboards.keyboards import (
     my_trips_menu_kb,
     active_trip_actions_kb,
@@ -262,7 +263,7 @@ async def my_recurring_trips(callback: CallbackQuery, session: AsyncSession) -> 
     for rt in items:
         role_emoji = "🚗" if rt.role == "driver" else "🙋"
         text = (
-            f"{role_emoji} {rt.from_address.split(',')[0]} → {rt.to_address.split(',')[0]}\n"
+            f"{role_emoji} {short_addr(rt.from_address)} → {short_addr(rt.to_address)}\n"
             f"🗓 {mask_label(rt.days_mask)}\n"
             f"🕒 {rt.departure_hour:02d}:{rt.departure_minute:02d}"
         )

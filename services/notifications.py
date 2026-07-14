@@ -15,6 +15,7 @@ from config import WEBAPP_URL
 from services import bot_settings as _s
 from services.timezone import now as _now
 from services.recurring import spawn_next
+from services.rich_cards import short_addr
 
 logger = logging.getLogger(__name__)
 
@@ -409,8 +410,8 @@ async def notify_new_match(
     text = (
         f"{header}\n\n"
         f"{role_emoji} <b>{role_label}</b>\n"
-        f"📍 {matched_trip.from_address.split(',')[0]}\n"
-        f"🏁 {matched_trip.to_address.split(',')[0]}\n"
+        f"📍 {short_addr(matched_trip.from_address)}\n"
+        f"🏁 {short_addr(matched_trip.to_address)}\n"
         f"🕒 {matched_trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n"
         f"💰 {price_prefix}{matched_trip.price:.0f} грн\n"
         f"⭐ Рейтинг: {rating_str}\n\n"
