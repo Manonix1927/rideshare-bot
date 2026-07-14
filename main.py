@@ -4,6 +4,7 @@ import hmac
 import json as _json
 import logging
 import os
+import pathlib
 import urllib.parse as _urlparse
 from services.timezone import now as _now
 from aiohttp import web
@@ -173,12 +174,23 @@ async def handle_debug(request: web.Request) -> web.Response:
     ), content_type="text/plain")
 
 
+_WEBAPP_DIR = pathlib.Path(__file__).parent / "webapp"
+
+
+async def _serve_webapp_index(request: web.Request) -> web.FileResponse:
+    return web.FileResponse(_WEBAPP_DIR / "index.html")
+
+
 def build_web_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/location/{match_id}", handle_location)
     app.router.add_post("/location/{match_id}", handle_location_post)
     app.router.add_options("/location/{match_id}", handle_preflight)
     app.router.add_get("/debug", handle_debug)
+    # Serve the Mini App (bot/webapp/) from this same service instead of GitHub
+    # Pages. WEBAPP_URL should then point at "https://<railway-domain>/webapp".
+    app.router.add_get("/webapp/", _serve_webapp_index)
+    app.router.add_static("/webapp/", path=str(_WEBAPP_DIR), name="webapp_static")
     setup_admin(app)
     return app
 
