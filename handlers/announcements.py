@@ -20,13 +20,14 @@ def _format_trip_card(trip: Trip, user: User) -> str:
     role_label = "Водій" if trip.role == "driver" else "Шукаю поїздку"
     price_label = f"{trip.price:.0f} грн" if trip.role == "driver" else f"до {trip.price:.0f} грн"
     seats_label = f"💺 {trip.seats} місць" if trip.role == "driver" else f"👥 {trip.seats} пас."
+    rating_label = f"{user.rating:.1f}" if user.rating is not None else "Без рейтингу"
 
     return (
         f"{role_emoji} <b>{role_label}</b> | "
         f"{', '.join(trip.from_address.split(',')[:2]).strip()} → {', '.join(trip.to_address.split(',')[:2]).strip()}\n"
         f"🕒 {trip.departure_time.strftime('%d.%m.%Y %H:%M')} | "
         f"💰 {price_label} | {seats_label}\n"
-        f"⭐ Рейтинг: {user.rating:.1f if user.rating is not None else 'Без рейтингу'} | 🔄 У пошуку"
+        f"⭐ Рейтинг: {rating_label} | 🔄 У пошуку"
     )
 
 

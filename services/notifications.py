@@ -174,13 +174,15 @@ async def send_trip_reminders(bot) -> None:
 
             reminder_tpl = _s.get("msg_reminder")
             base = reminder_tpl.replace("{route}", f"{from_addr} → {to_addr}").replace("{time}", time_str)
+            passenger_rating = f"{passenger_user.rating:.1f}" if passenger_user.rating is not None else "н/р"
+            driver_rating    = f"{driver_user.rating:.1f}" if driver_user.rating is not None else "н/р"
             text = (
                 f"{base}\n\n"
-                f"Попутник: {passenger_user.first_name} ⭐{passenger_user.rating:.1f if passenger_user.rating is not None else 'н/р'}"
+                f"Попутник: {passenger_user.first_name} ⭐{passenger_rating}"
             )
             passenger_text = (
                 f"{base}\n\n"
-                f"Водій: {driver_user.first_name} ⭐{driver_user.rating:.1f if driver_user.rating is not None else 'н/р'}"
+                f"Водій: {driver_user.first_name} ⭐{driver_rating}"
             )
 
             track_url = build_track_url(match, driver_user.id, passenger_user.id)
